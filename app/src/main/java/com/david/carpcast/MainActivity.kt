@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CarpCastApp() {
     Scaffold(
-        topBar = { CarpCastTopBar() }
+       // topBar = { CarpCastTopBar() }
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             HomeScreen()

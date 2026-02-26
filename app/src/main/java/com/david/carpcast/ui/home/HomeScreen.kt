@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.InvertColors
@@ -92,6 +91,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlin.coroutines.resume
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.CardDefaults
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -571,6 +573,7 @@ fun HomeScreenContent(
 @Composable
 fun Hero() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.height(12.dp))
         Box(
             modifier = Modifier
                 .size(88.dp)
@@ -582,15 +585,22 @@ fun Hero() {
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Bolt,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(36.dp)
-            )
+            // Envolver la imagen en un Card circular para forzar el recorte
+            Card(
+                shape = CircleShape,
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                modifier = Modifier
+                    .clip(CircleShape)
+            ) {
+                Image(
+                    painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                    contentDescription = null
+                )
+            }
         }
         Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.carpcast_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Text(
             stringResource(R.string.carpcast_subtitle),
@@ -626,7 +636,7 @@ fun SpeciesGrid(options: List<SpeciesOption>, selected: SpeciesOption, onSelect:
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            androidx.compose.foundation.Image(
+                            Image(
                                 painter = painterResource(id = s.iconRes),
                                 contentDescription = null,
                                 modifier = Modifier.size(72.dp)
