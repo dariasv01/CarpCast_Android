@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CarpCast</string>
+    <string name="carpcast_title">CarpCast 2.0</string>
+    <string name="carpcast_subtitle">Pronóstico Global de Actividad de Pesca</string>
+
+    <string name="species_title">Especie Objetivo</string>
+    <string name="select_location_title">Seleccionar Ubicación</string>
+    <string name="my_location">Mi ubicación</string>
+    <string name="getting_location">Obteniendo…</string>
+    <string name="search_placeholder">Buscar lugar (ej. Madrid, España)</string>
+    <string name="get_forecast">Obtener Pronóstico</string>
+
+    <string name="changing_page_title">Cambiando de página…</string>
+    <string name="changing_page_text">Esto puede tardar un momento mientras cambiamos de pantalla</string>
+
+    <string name="back_desc">Atrás</string>
+    <string name="refresh_desc">Refrescar</string>
+    <string name="summary_day_title">Resumen del día</string>
+    <string name="meteorology_day_title">Meteorología del día</string>
+    <string name="sources_label">Fuentes de datos</string>
+    <string name="generated_label">Generado</string>
+    <string name="no_forecast_msg">Sin pronóstico cargado. Pulsa refrescar.</string>
+    <string name="loading_text">Cargando pronóstico…</string>
+    <string name="upcoming_days_title">Próximos días</string>
+    <string name="avg_label">Media:</string>
+
+    <!-- used in cards -->
+    <string name="factors_title">Factores</string>
+    <string name="day_avg_label">Media del día</string>
+    <string name="best_hour_label">Mejor hora</string>
+    <string name="worst_hour_label">Peor hora</string>
+    <string name="avg_confidence_label">Confianza media</string>
+    <string name="block_summary_note">Resumen generado a partir de las puntuaciones horarias y la confianza.</string>
+
+    <string name="temperature_label">Temperatura</string>
+    <string name="rain_total_label">Lluvia total</string>
+    <string name="wind_label">Viento</string>
+    <string name="gusts_note">Ráfagas: %1$s</string>
+    <string name="pressure_label">Presión</string>
+    <string name="variation_note">Variación: %1$s</string>
+    <string name="n_clouds_humidity">Nubes: %1$s%% · Humedad: %2$s%%</string>
+
+    <string name="best_windows_title">Mejores ventanas</string>
+    <string name="sunrise_label">Amanecer</string>
+    <string name="moon_illumination_label">Iluminación</string>
+    <string name="moon_label">Luna</string>
+    <string name="hydro_label">Hidrología</string>
+    <string name="na_label">N/D</string>
+
+    <string name="hourly_title">Por horas</string>
+    <string name="status_raining">Lloviendo</string>
+    <string name="status_cloudy">Nublado</string>
+    <string name="status_night">Noche</string>
+    <string name="status_clear">Despejado</string>
+    <string name="prob_rain_label">Prob.</string>
+
+    <string name="excellent_label">Excelente</string>
+    <string name="good_label">Buen día</string>
+    <string name="regular_label">Regular</string>
+    <string name="weak_label">Flojo</string>
+    <string name="map_mode_standard">Estándar</string>
+    <string name="map_mode_satellite">Satélite</string>
+
+    <!-- MISSING KEYS ADDED FROM values-en (placeholders in English) -->
+    <string name="species_carp_label">Carpa</string>
+    <string name="species_carp_subtitle">Pesca de carpa</string>
+    <string name="species_barbel_label">Barbo</string>
+    <string name="species_barbel_subtitle">Pesca de barbo</string>
+    <string name="species_bass_label">Black bass</string>
+    <string name="species_bass_subtitle">Depredadores</string>
+    <string name="species_pike_label">Lucio</string>
+    <string name="species_pike_subtitle">Depredadores</string>
+    <string name="species_catfish_label">Bagre</string>
+    <string name="species_catfish_subtitle">Depredadores</string>
+
+    <string name="feature_meteorology_title">Meteorología</string>
+    <string name="feature_meteorology_subtitle">Viento, presión, lluvia</string>
+    <string name="feature_astronomy_title">Astronomía</string>
+    <string name="feature_astronomy_subtitle">Sol, luna, mareas</string>
+    <string name="feature_hydro_title">Hidrología</string>
+    <string name="feature_hydro_subtitle">Nivel, caudal*</string>
+    <string name="feature_map_title">Mapa global</string>
+    <string name="feature_map_subtitle">Selección visual</string>
+
+    <string name="info_how_title">Cómo funciona</string>
+    <string name="info_bullet_1">Analizamos más de 15 factores meteorológicos y astronómicos</string>
+    <string name="info_bullet_2">Calculamos un índice de actividad de 0 a 100</string>
+    <string name="info_bullet_3">Identificamos las mejores ventanas del día</string>
+    <string name="info_bullet_4">Explicamos cada factor que afecta la puntuación</string>
+
+    <string name="quick_title">Acceso rápido</string>
+    <string name="quick_fav_title">Lugares favoritos</string>
+    <string name="quick_fav_subtitle">Guarda tus mejores puntos</string>
+    <string name="quick_settings_title">Ajustes</string>
+    <string name="quick_settings_subtitle">Alertas y preferencias</string>
+    <string name="default_location_name">Ubicación predeterminada</string>
+
+    <!-- Favorites / quick actions -->
+    <string name="add_favorite">Añadir favorito</string>
+    <string name="remove_favorite">Eliminar favorito</string>
+    <string name="favorites_title">Favoritos</string>
+    <string name="enter_favorite_name">Introduce un nombre para este favorito</string>
+    <string name="favorite_added">Favorito añadido</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancelar</string>
+
+    <!-- forecast small labels with emoji -->
+    <string name="precip_emoji_mm">☔ %1$.1fmm</string>
+    <string name="cloud_emoji_pct">☁ %1$.0f%%</string>
+
+    <!-- Moon phase translations (es) -->
+    <string name="moon_phase_new">Luna nueva</string>
+    <string name="moon_phase_full">Luna llena</string>
+    <string name="moon_phase_first_quarter">Cuarto creciente</string>
+    <string name="moon_phase_last_quarter">Cuarto menguante</string>
+    <string name="moon_phase_waxing_gibbous">Gibosa creciente</string>
+    <string name="moon_phase_waning_gibbous">Gibosa menguante</string>
+    <string name="moon_phase_waxing_crescent">Creciente</string>
+    <string name="moon_phase_waning_crescent">Menguante</string>
+    <string name="moon_phase_crescent">Creciente</string>
+    <string name="moon_phase_gibbous">Gibosa</string>
+    <string name="moon_phase_half">Media luna</string>
+    <string name="moon_phase_unknown">Desconocida</string>
+</resources>

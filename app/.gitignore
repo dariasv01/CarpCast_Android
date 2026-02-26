@@ -1,0 +1,12 @@
+# Module build output
+/build/
+
+# Local configuration
+/local.properties
+
+# Android Studio
+/.idea/
+
+# Native build artifacts
+.externalNativeBuild
+.cxx

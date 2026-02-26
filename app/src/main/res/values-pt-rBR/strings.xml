@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CarpCast</string>
+    <string name="carpcast_title">CarpCast 2.0</string>
+    <string name="carpcast_subtitle">Previsão global de atividade de pesca</string>
+
+    <string name="species_title">Espécie alvo</string>
+    <string name="select_location_title">Selecionar local</string>
+    <string name="my_location">Minha localização</string>
+    <string name="getting_location">Obtendo…</string>
+    <string name="search_placeholder">Pesquisar local (ex. Madrid, Espanha)</string>
+    <string name="get_forecast">Obter previsão</string>
+
+    <string name="changing_page_title">Mudando de página…</string>
+    <string name="changing_page_text">Isso pode levar um momento enquanto trocamos de tela</string>
+
+    <string name="back_desc">Voltar</string>
+    <string name="refresh_desc">Atualizar</string>
+    <string name="summary_day_title">Resumo do dia</string>
+    <string name="meteorology_day_title">Meteorologia do dia</string>
+    <string name="sources_label">Fontes de dados</string>
+    <string name="generated_label">Gerado</string>
+    <string name="no_forecast_msg">Nenhuma previsão carregada. Toque em atualizar.</string>
+    <string name="loading_text">Carregando previsão…</string>
+    <string name="upcoming_days_title">Próximos dias</string>
+    <string name="avg_label">Média:</string>
+
+    <!-- used in cards -->
+    <string name="factors_title">Fatores</string>
+    <string name="day_avg_label">Média do dia</string>
+    <string name="best_hour_label">Melhor hora</string>
+    <string name="worst_hour_label">Pior hora</string>
+    <string name="avg_confidence_label">Confiança média</string>
+    <string name="block_summary_note">Resumo gerado a partir de escores horários e confiança.</string>
+
+    <string name="temperature_label">Temperatura</string>
+    <string name="rain_total_label">Chuva total</string>
+    <string name="wind_label">Vento</string>
+    <string name="gusts_note">Rajadas: %1$s</string>
+    <string name="pressure_label">Pressão</string>
+    <string name="variation_note">Variação: %1$s</string>
+    <string name="n_clouds_humidity">Nuvens: %1$s%% · Umidade: %2$s%%</string>
+
+    <string name="best_windows_title">Melhores janelas</string>
+    <string name="sunrise_label">Nascer do sol</string>
+    <string name="moon_illumination_label">Iluminação</string>
+    <string name="moon_label">Lua</string>
+    <string name="hydro_label">Hidrologia</string>
+    <string name="na_label">N/D</string>
+
+    <string name="hourly_title">Por horas</string>
+    <string name="status_raining">Chovendo</string>
+    <string name="status_cloudy">Nublado</string>
+    <string name="status_night">Noite</string>
+    <string name="status_clear">Limpo</string>
+    <string name="prob_rain_label">Prob.</string>
+
+    <string name="excellent_label">Excelente</string>
+    <string name="good_label">Bom</string>
+    <string name="regular_label">Regular</string>
+    <string name="weak_label">Fraco</string>
+    <string name="map_mode_standard">Padrão</string>
+    <string name="map_mode_satellite">Satélite</string>
+
+    <!-- MISSING KEYS ADDED FROM values-en (translated to pt-BR) -->
+    <string name="species_carp_label">Carpa</string>
+    <string name="species_carp_subtitle">Pesca de carpa</string>
+    <string name="species_barbel_label">Barbo</string>
+    <string name="species_barbel_subtitle">Pesca de barbo</string>
+    <string name="species_bass_label">Black Bass</string>
+    <string name="species_bass_subtitle">Predadores</string>
+    <string name="species_pike_label">Lúcio</string>
+    <string name="species_pike_subtitle">Predadores</string>
+    <string name="species_catfish_label">Bagre</string>
+    <string name="species_catfish_subtitle">Predadores</string>
+
+    <string name="feature_meteorology_title">Meteorologia</string>
+    <string name="feature_meteorology_subtitle">Vento, pressão, chuva</string>
+    <string name="feature_astronomy_title">Astronomia</string>
+    <string name="feature_astronomy_subtitle">Sol, lua, marés</string>
+    <string name="feature_hydro_title">Hidrologia</string>
+    <string name="feature_hydro_subtitle">Nível, vazão*</string>
+    <string name="feature_map_title">Mapa Global</string>
+    <string name="feature_map_subtitle">Seleção visual</string>
+
+    <string name="info_how_title">Como funciona</string>
+    <string name="info_bullet_1">Analisamos 15+ fatores meteorológicos e astronômicos</string>
+    <string name="info_bullet_2">Calculamos um índice de atividade de 0 a 100</string>
+    <string name="info_bullet_3">Identificamos as melhores janelas do dia</string>
+    <string name="info_bullet_4">Explicamos cada fator que afeta a pontuação</string>
+
+    <string name="quick_title">Acesso rápido</string>
+    <string name="quick_fav_title">Lugares favoritos</string>
+    <string name="quick_fav_subtitle">Salve seus melhores pontos</string>
+    <string name="quick_settings_title">Configurações</string>
+    <string name="quick_settings_subtitle">Alertas e preferências</string>
+    <string name="default_location_name">Localidade padrão</string>
+
+    <!-- Favorites / quick actions -->
+    <string name="add_favorite">Adicionar favorito</string>
+    <string name="remove_favorite">Remover favorito</string>
+    <string name="favorites_title">Favoritos</string>
+    <string name="enter_favorite_name">Insira um nome para este favorito</string>
+    <string name="favorite_added">Favorito adicionado</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancelar</string>
+
+    <!-- forecast small labels with emoji -->
+    <string name="precip_emoji_mm">☔ %1$.1fmm</string>
+    <string name="cloud_emoji_pct">☁ %1$.0f%%</string>
+</resources>

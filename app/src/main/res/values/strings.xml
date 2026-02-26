@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CarpCast</string>
+    <string name="carpcast_title">CarpCast 2.0</string>
+    <string name="carpcast_subtitle">Global Fishing Activity Forecast</string>
+
+    <string name="species_title">Target species</string>
+    <string name="select_location_title">Select location</string>
+    <string name="my_location">My location</string>
+    <string name="getting_location">Getting…</string>
+    <string name="search_placeholder">Search place (e.g. Madrid, Spain)</string>
+    <string name="get_forecast">Get forecast</string>
+
+    <string name="changing_page_title">Switching page…</string>
+    <string name="changing_page_text">This may take a moment while we change screens</string>
+
+    <string name="back_desc">Back</string>
+    <string name="refresh_desc">Refresh</string>
+    <string name="summary_day_title">Day summary</string>
+    <string name="meteorology_day_title">Day meteorology</string>
+    <string name="sources_label">Data sources</string>
+    <string name="generated_label">Generated</string>
+    <string name="no_forecast_msg">No forecast loaded. Tap refresh.</string>
+    <string name="loading_text">Loading forecast…</string>
+    <string name="upcoming_days_title">Upcoming days</string>
+    <string name="avg_label">Avg:</string>
+
+    <!-- used in cards -->
+    <string name="factors_title">Factors</string>
+    <string name="day_avg_label">Day average</string>
+    <string name="best_hour_label">Best hour</string>
+    <string name="worst_hour_label">Worst hour</string>
+    <string name="avg_confidence_label">Avg confidence</string>
+    <string name="block_summary_note">Summary generated from hourly scores and confidence.</string>
+
+    <string name="temperature_label">Temperature</string>
+    <string name="rain_total_label">Rain total</string>
+    <string name="wind_label">Wind</string>
+    <string name="gusts_note">Gusts: %1$s</string>
+    <string name="pressure_label">Pressure</string>
+    <string name="variation_note">Variation: %1$s</string>
+    <string name="n_clouds_humidity">Clouds: %1$s%% · Humidity: %2$s%%</string>
+
+    <string name="best_windows_title">Best windows</string>
+    <string name="sunrise_label">Sunrise</string>
+    <string name="moon_illumination_label">Illumination</string>
+    <string name="moon_label">Moon</string>
+    <string name="hydro_label">Hydrology</string>
+    <string name="na_label">N/A</string>
+
+    <string name="hourly_title">Hourly</string>
+    <string name="status_raining">Raining</string>
+    <string name="status_cloudy">Cloudy</string>
+    <string name="status_night">Night</string>
+    <string name="status_clear">Clear</string>
+    <string name="prob_rain_label">Prob.</string>
+
+    <string name="excellent_label">Excellent</string>
+    <string name="good_label">Good</string>
+    <string name="regular_label">Regular</string>
+    <string name="weak_label">Weak</string>
+    <string name="map_mode_standard">Standard</string>
+    <string name="map_mode_satellite">Satellite</string>
+
+    <!-- species labels and subtitles -->
+    <string name="species_carp_label">Carp</string>
+    <string name="species_carp_subtitle">Carpfishing</string>
+    <string name="species_barbel_label">Barbel</string>
+    <string name="species_barbel_subtitle">Carpfishing</string>
+    <string name="species_bass_label">BlackBass</string>
+    <string name="species_bass_subtitle">Predators</string>
+    <string name="species_pike_label">Pike</string>
+    <string name="species_pike_subtitle">Predators</string>
+    <string name="species_catfish_label">Catfish</string>
+    <string name="species_catfish_subtitle">Predators</string>
+
+    <!-- feature cards -->
+    <string name="feature_meteorology_title">Meteorology</string>
+    <string name="feature_meteorology_subtitle">Wind, pressure, rain</string>
+    <string name="feature_astronomy_title">Astronomy</string>
+    <string name="feature_astronomy_subtitle">Sun, moon, tides</string>
+    <string name="feature_hydro_title">Hydrology</string>
+    <string name="feature_hydro_subtitle">Level, discharge*</string>
+    <string name="feature_map_title">Global Map</string>
+    <string name="feature_map_subtitle">Visual selection</string>
+
+    <!-- info / quick access -->
+    <string name="info_how_title">How it works</string>
+    <string name="info_bullet_1">We analyze 15+ meteorological and astronomical factors</string>
+    <string name="info_bullet_2">We compute an activity index from 0 to 100</string>
+    <string name="info_bullet_3">We identify the best windows of the day</string>
+    <string name="info_bullet_4">We explain each factor affecting the score</string>
+
+    <string name="quick_title">Quick Access</string>
+    <string name="quick_fav_title">Favorite places</string>
+    <string name="quick_fav_subtitle">Save your best spots</string>
+    <string name="quick_settings_title">Settings</string>
+    <string name="quick_settings_subtitle">Alerts &amp; preferences</string>
+    <string name="default_location_name">Default location</string>
+
+    <!-- Favorites / quick actions -->
+    <string name="add_favorite">Add favorite</string>
+    <string name="remove_favorite">Remove favorite</string>
+    <string name="favorites_title">Favorites</string>
+    <string name="enter_favorite_name">Enter a name for this favorite</string>
+    <string name="favorite_added">Favorite added</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- forecast small labels with emoji -->
+    <string name="precip_emoji_mm">☔ %1$.1fmm</string>
+    <string name="cloud_emoji_pct">☁ %1$.0f%%</string>
+
+    <!-- Moon phase translations (default/en) -->
+    <string name="moon_phase_new">New moon</string>
+    <string name="moon_phase_full">Full moon</string>
+    <string name="moon_phase_first_quarter">First quarter</string>
+    <string name="moon_phase_last_quarter">Last quarter</string>
+    <string name="moon_phase_waxing_gibbous">Waxing gibbous</string>
+    <string name="moon_phase_waning_gibbous">Waning gibbous</string>
+    <string name="moon_phase_waxing_crescent">Waxing crescent</string>
+    <string name="moon_phase_waning_crescent">Waning crescent</string>
+    <string name="moon_phase_crescent">Crescent</string>
+    <string name="moon_phase_gibbous">Gibbous</string>
+    <string name="moon_phase_half">Half moon</string>
+    <string name="moon_phase_unknown">Unknown</string>
+</resources>

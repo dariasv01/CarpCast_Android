@@ -1,0 +1,49 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+/captures
+.externalNativeBuild
+.cxx
+*.log
+.vscode/
+*.jks
+*.keystore
+*.keystore.*
+# Gradle local configuration
+/local.properties
+
+# IntelliJ / Android Studio
+/.idea/
+
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+
+# Build folders (module and root)
+**/build/
+
+# Android Studio captures
+/captures
+
+# Native build artifacts
+.externalNativeBuild
+.cxx
+
+# Local properties (duplicate removal handled)
+local.properties
+
+# Keystore and signing files
+*.jks
+*.keystore
+*.keystore.*
+
+# Misc
+*.log
+.vscode/
+
+# Exclude generated Gradle cache (optional)
+.gradle
+
+.kotlin

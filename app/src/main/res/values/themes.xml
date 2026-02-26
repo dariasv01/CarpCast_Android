@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Usar un tema DayNight compatible para que la Activity pueda seguir el modo oscuro del sistema -->
+    <style name="Theme.CarpCast" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
