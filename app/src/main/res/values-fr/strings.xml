@@ -108,4 +108,31 @@
     <!-- forecast small labels with emoji -->
     <string name="precip_emoji_mm">☔ %1$.1fmm</string>
     <string name="cloud_emoji_pct">☁ %1$.0f%%</string>
+
+    <!-- Añadidos para ForecastView -->
+    <string name="forecast_no_data">Aucune donnée</string>
+    <string name="retry_label">Réessayer</string>
+    <string name="today_label">Aujourd\'hui</string>
+    <string name="refresh_label">Rafraîchir</string>
+    <string name="details_title">Détails</string>
+    <string name="temp_min_max">Temp. min/max: %1$s / %2$s %3$s</string>
+    <string name="precipitation_label">Précipitations: %1$s %2$s</string>
+    <string name="clouds_avg_label">Nuages (avg): %1$s%%</string>
+    <string name="unit_hpa">hPa</string>
+    <string name="unit_kmh">km/h</string>
+    <string name="unit_mm">mm</string>
+    <string name="unit_celsius">°C</string>
+    <string name="confidence_badge">%1$s%% confiance</string>
+    <string name="confidence_label">Confiance: %1$s</string>
+    <string name="wind_label_value">Vent: %1$s %2$s</string>
+    <string name="precipitation_value">Précip: %1$s %2$s</string>
+    <string name="condition_label">Condition: %1$s</string>
+    <string name="selected_label">Sélectionné : %1$s</string>
+    <string name="best_time_label">Meilleur créneau : %1$s</string>
+    <string name="prime_window_label">FENÊTRE PRINCIPALE — %1$s · %2$d</string>
+    <string name="fishing_activity_title">Activité de pêche</string>
+    <string name="conditions_suffix">Conditions</string>
+    <string name="activity_trend_label">Tendance : %1$s</string>
+    <string name="prime_window_title">FENÊTRE PRINCIPALE</string>
+    <string name="prime_window_time">%1$s – %2$s</string>
 </resources>

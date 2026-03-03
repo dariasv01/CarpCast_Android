@@ -124,4 +124,31 @@
     <string name="moon_phase_gibbous">Gibbous</string>
     <string name="moon_phase_half">Half moon</string>
     <string name="moon_phase_unknown">Unknown</string>
+
+    <!-- Added for ForecastView localization -->
+    <string name="forecast_no_data">No forecast data</string>
+    <string name="retry_label">Retry</string>
+    <string name="today_label">Today</string>
+    <string name="refresh_label">Refresh</string>
+    <string name="details_title">Details</string>
+    <string name="temp_min_max">Temp. min/max: %1$s / %2$s %3$s</string>
+    <string name="precipitation_label">Precipitation: %1$s %2$s</string>
+    <string name="clouds_avg_label">Clouds (avg): %1$s%%</string>
+    <string name="unit_hpa">hPa</string>
+    <string name="unit_kmh">km/h</string>
+    <string name="unit_mm">mm</string>
+    <string name="unit_celsius">°C</string>
+    <string name="confidence_badge">%1$s%% confidence</string>
+    <string name="confidence_label">Confidence: %1$s</string>
+    <string name="wind_label_value">Wind: %1$s %2$s</string>
+    <string name="precipitation_value">Precip: %1$s %2$s</string>
+    <string name="condition_label">Condition: %1$s</string>
+    <string name="selected_label">Selected: %1$s</string>
+    <string name="best_time_label">Best time: %1$s</string>
+    <string name="prime_window_label">PRIME WINDOW — %1$s · %2$d</string>
+    <string name="fishing_activity_title">Fishing Activity</string>
+    <string name="conditions_suffix">Conditions</string>
+    <string name="activity_trend_label">Activity Trend: %1$s</string>
+    <string name="prime_window_title">PRIME WINDOW</string>
+    <string name="prime_window_time">%1$s – %2$s</string>
 </resources>

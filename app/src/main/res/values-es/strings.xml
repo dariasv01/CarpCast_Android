@@ -122,4 +122,26 @@
     <string name="moon_phase_gibbous">Gibosa</string>
     <string name="moon_phase_half">Media luna</string>
     <string name="moon_phase_unknown">Desconocida</string>
+
+    <!-- Añadidos para ForecastView -->
+    <string name="forecast_no_data">No hay datos</string>
+    <string name="retry_label">Reintentar</string>
+    <string name="today_label">Hoy</string>
+    <string name="refresh_label">Refrescar</string>
+    <string name="details_title">Detalles</string>
+    <string name="temp_min_max">Temp. min/max: %1$s / %2$s %3$s</string>
+    <string name="precipitation_label">Precipitación: %1$s %2$s</string>
+    <string name="clouds_avg_label">Nubes (avg): %1$s%%</string>
+    <string name="unit_hpa">hPa</string>
+    <string name="unit_kmh">km/h</string>
+    <string name="unit_mm">mm</string>
+    <string name="unit_celsius">°C</string>
+    <string name="confidence_badge">%1$s%% confianza</string>
+    <string name="confidence_label">Confianza: %1$s</string>
+    <string name="wind_label_value">Viento: %1$s %2$s</string>
+    <string name="precipitation_value">Precip: %1$s %2$s</string>
+    <string name="condition_label">Condición: %1$s</string>
+    <string name="selected_label">Seleccionado: %1$s</string>
+    <string name="best_time_label">Mejor hora: %1$s</string>
+    <string name="prime_window_label">VENTANA PRINCIPAL — %1$s · %2$d</string>
 </resources>

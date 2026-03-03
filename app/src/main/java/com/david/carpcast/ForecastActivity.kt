@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.MutableState
+import com.david.carpcast.ui.ForecastView
 import org.json.JSONObject
 import org.json.JSONArray
 import java.text.SimpleDateFormat
@@ -37,6 +38,54 @@ class ForecastActivity : ComponentActivity() {
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
+    @RequiresApi(Build.VERSION_CODES.O)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        val json = intent?.getStringExtra(EXTRA_FORECAST_JSON) ?: "{}"
+
+        val forecastState: MutableState<SimpleForecast?> = mutableStateOf(null)
+        val loadingState: MutableState<Boolean> = mutableStateOf(false)
+
+        val onRefreshLambda: () -> Unit = {
+            if (!loadingState.value) {
+                loadingState.value = true
+                CoroutineScope(Dispatchers.Default).launch {
+                    try {
+                        val score = parseAndScore(json)
+                        val forecastModel = mapScoreToSimpleForecast(json, score)
+                        runOnUiThread {
+                            forecastState.value = forecastModel
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        runOnUiThread { loadingState.value = false }
+                    }
+                }
+            }
+        }
+
+        setContent {
+            CarpCastTheme {
+                ForecastView(
+                    forecast = forecastState.value,
+                    loading = loadingState.value,
+                    onBack = { finish() },
+                    onRefresh = onRefreshLambda
+                )
+            }
+        }
+
+        CoroutineScope(Dispatchers.Default).launch {
+            val score = parseAndScore(json)
+            val forecastModel = mapScoreToSimpleForecast(json, score)
+            runOnUiThread {
+                forecastState.value = forecastModel
+            }
+        }
+    }
+
+    /*@OptIn(ExperimentalMaterial3Api::class)
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,7 +133,7 @@ class ForecastActivity : ComponentActivity() {
                 forecastState.value = forecastModel
             }
         }
-    }
+    }*/
 
     // kotlin
     @RequiresApi(Build.VERSION_CODES.O)
