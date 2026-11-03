@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.david.carpcast.R
 
 @Composable
 fun HourlyItemCompact(hour: String, temp: String, score: Int, onClick: () -> Unit, modifier: Modifier = Modifier, isPrime: Boolean = false) {
@@ -44,7 +46,7 @@ fun HourlyItemCompact(hour: String, temp: String, score: Int, onClick: () -> Uni
                         if (isPrime) {
                             // small badge with emoji
                             Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), tonalElevation = 0.dp) {
-                                Text(text = "🔥", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 14.sp)
+                                Text(text = stringResource(id = R.string.fire_emoji), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 14.sp)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                         }

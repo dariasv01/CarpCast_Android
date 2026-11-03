@@ -12,14 +12,13 @@ import com.david.carpcast.scoring.*
 import com.david.carpcast.scoring.WeatherData
 import com.david.carpcast.ui.SimpleForecast
 import com.david.carpcast.ui.HourlyEntry
-import com.david.carpcast.ui.ForecastHost
 import com.david.carpcast.ui.theme.CarpCastTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.MutableState
-import com.david.carpcast.ui.ForecastView
+import com.david.carpcast.ui.ModernForecastScreen
 import org.json.JSONObject
 import org.json.JSONArray
 import java.text.SimpleDateFormat
@@ -28,9 +27,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import android.util.Log
 
 class ForecastActivity : ComponentActivity() {
     companion object {
@@ -48,7 +49,9 @@ class ForecastActivity : ComponentActivity() {
         val loadingState: MutableState<Boolean> = mutableStateOf(false)
 
         val onRefreshLambda: () -> Unit = {
+            Log.d("ForecastActivity", "onRefreshLambda invoked. loadingState=${loadingState.value}")
             if (!loadingState.value) {
+                Log.d("ForecastActivity", "Starting refresh: setting loadingState=true")
                 loadingState.value = true
                 CoroutineScope(Dispatchers.Default).launch {
                     try {
@@ -57,22 +60,46 @@ class ForecastActivity : ComponentActivity() {
                         runOnUiThread {
                             forecastState.value = forecastModel
                         }
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.d("ForecastActivity", "Refresh failed: ${e.message}")
                     } finally {
-                        runOnUiThread { loadingState.value = false }
+                        runOnUiThread {
+                            loadingState.value = false
+                            Log.d("ForecastActivity", "Refresh finished: setting loadingState=false")
+                        }
                     }
                 }
+
+                // Safety timeout: if after 15s loadingState still true, reset it to avoid spinner stuck
+                CoroutineScope(Dispatchers.Default).launch {
+                    try {
+                        kotlinx.coroutines.delay(15_000)
+                        if (loadingState.value) {
+                            runOnUiThread {
+                                loadingState.value = false
+                                Log.d("ForecastActivity", "Safety timeout: forcing loadingState=false after 15s")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.d("ForecastActivity", "Safety timeout coroutine failed: ${e.message}")
+                    }
+                }
+            } else {
+                Log.d("ForecastActivity", "Refresh requested but already loading")
             }
         }
 
         setContent {
             CarpCastTheme {
-                ForecastView(
-                    forecast = forecastState.value,
-                    loading = loadingState.value,
-                    onBack = { finish() },
-                    onRefresh = onRefreshLambda
-                )
+                // Mostrar ModernForecastScreen cuando haya datos; ForecastHost como fallback
+                forecastState.value?.let { model ->
+                    ModernForecastScreen(
+                        forecast = model,
+                        onBack = { finish() },
+                        onRefresh = onRefreshLambda,
+                        isLoadingState = loadingState,
+                    )
+                }
             }
         }
 
@@ -85,57 +112,6 @@ class ForecastActivity : ComponentActivity() {
         }
     }
 
-    /*@OptIn(ExperimentalMaterial3Api::class)
-    @RequiresApi(Build.VERSION_CODES.O)
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        val json = intent?.getStringExtra(EXTRA_FORECAST_JSON) ?: "{}"
-
-        // Estado compartido entre Activity y Compose para mostrar transición de carga
-        val forecastState: MutableState<SimpleForecast?> = mutableStateOf(null)
-        // Estado que controla el banner de carga cuando el usuario pulsa el botón "refrescar"
-        val loadingState: MutableState<Boolean> = mutableStateOf(false)
-
-        // Acción para refrescar el forecast desde la UI: activa loadingState y recalcula en background
-        val onRefreshLambda: () -> Unit = {
-            // Solo iniciar si no hay ya una carga en curso
-            if (!loadingState.value) {
-                loadingState.value = true
-                CoroutineScope(Dispatchers.Default).launch {
-                    try {
-                        val score = parseAndScore(json)
-                        val forecastModel = mapScoreToSimpleForecast(json, score)
-                        runOnUiThread {
-                            forecastState.value = forecastModel
-                        }
-                    } catch (_: Exception) {
-                        // ignore errors; keep previous forecast
-                    } finally {
-                        runOnUiThread { loadingState.value = false }
-                    }
-                }
-            }
-        }
-
-        // Montar la UI inmediatamente: no mostramos el banner por defecto, solo cuando se pulse refresh
-        setContent {
-            CarpCastTheme {
-                ForecastHost(forecastState = forecastState, loadingState = loadingState, onBack = { finish() }, onRefresh = onRefreshLambda)
-            }
-        }
-
-        // Ejecutar parse + scoring inicial en background y actualizar el estado cuando esté listo
-        CoroutineScope(Dispatchers.Default).launch {
-            val score = parseAndScore(json)
-            val forecastModel = mapScoreToSimpleForecast(json, score)
-            runOnUiThread {
-                forecastState.value = forecastModel
-            }
-        }
-    }*/
-
-    // kotlin
     @RequiresApi(Build.VERSION_CODES.O)
     private fun parseAndScore(json: String): ActivityScore {
         try {
@@ -487,8 +463,8 @@ class ForecastActivity : ComponentActivity() {
             else -> "Desconocido"
         }
 
-        val generatedAt =
-            SimpleDateFormat("dd/MM/yyyy, HH:mm:ss", Locale.getDefault()).format(Date())
+        // Use local ISO date (YYYY-MM-DD) for generatedAt so it matches otherDays keys
+        val generatedAt = LocalDate.now(ZoneId.systemDefault()).toString()
 
         // Temperaturas: intenta current, luego daily[0], fallback
         val current = root.optJSONObject("current")
@@ -584,7 +560,7 @@ class ForecastActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {}
             try {
-                val odt = try { java.time.OffsetDateTime.parse(s) } catch (_: Exception) { null }
+                val odt = try { OffsetDateTime.parse(s) } catch (_: Exception) { null }
                 if (odt != null) {
                     val local = odt.atZoneSameInstant(ZoneId.systemDefault()).toLocalTime()
                     return fmt.format(local)
@@ -668,7 +644,7 @@ class ForecastActivity : ComponentActivity() {
                          }
 
                          // Nubosidad
-                         val cloudVal = weatherObj?.optDouble("clouds", Double.NaN) ?: f.optJSONObject("weather").optDouble("clouds", Double.NaN)
+                         val cloudVal = weatherObj?.optDouble("clouds", Double.NaN) ?: f.optJSONObject("weather")?.optDouble("clouds", Double.NaN) ?: Double.NaN
 
                          // isDay
                          val isDayVal = when {
@@ -686,6 +662,11 @@ class ForecastActivity : ComponentActivity() {
                          val windVal = if (wind.isFinite()) wind else null
                          val windDirVal = if (windDirRaw.isFinite()) windDirRaw else null
                          val scoreVal = if (overall != Int.MIN_VALUE) overall else null
+                         // extraer presión horaria (varios posibles nombres)
+                         val presValHour = weatherObj?.optDouble("pressure", Double.NaN)
+                             ?: weatherObj?.optDouble("pressure_hPa", Double.NaN)
+                             ?: f.optDouble("pressure", Double.NaN)
+                         val presVal = if (presValHour.isFinite()) presValHour else Double.NaN
 
                          // Condición textual (si no viene explícita intentar inferirla)
                          val condRaw = weatherObj?.optString("condition")?.takeIf { it.isNotBlank() } ?: f.optString("condition", "").takeIf { it.isNotBlank() }
@@ -704,6 +685,7 @@ class ForecastActivity : ComponentActivity() {
                                  time = time,
                                  temperature = tempVal,
                                  precipitation = precipVal,
+                                 pressure = if (presVal.isFinite()) presVal else null,
                                  windSpeed = windVal,
                                  windDirectionDeg = windDirVal,
                                  score = scoreVal,
@@ -790,195 +772,238 @@ class ForecastActivity : ComponentActivity() {
                     var precipSumDay = 0.0
                     var cloudSum = 0.0
                     var cloudCount = 0
+                    var dayWindSum = 0.0
+                    var dayWindCount = 0
+                    var dayWindMax = Double.NEGATIVE_INFINITY
+                    var dayGustMax = Double.NEGATIVE_INFINITY
+                    var dayPressureMin = Double.POSITIVE_INFINITY
+                    var dayPressureMax = Double.NEGATIVE_INFINITY
                     for (f in list) {
-                        val overall = f.optJSONObject("activity")?.optInt("overall", Int.MIN_VALUE) ?: Int.MIN_VALUE
-                        if (overall != Int.MIN_VALUE) { sumScore += overall.toDouble(); countScore++ }
-                        val weatherObj = f.optJSONObject("weather")
-                        val temp = weatherObj?.optDouble("temperature", Double.NaN) ?: f.optDouble("temperature", Double.NaN)
-                        if (temp.isFinite()) {
-                            if (temp < tMin) tMin = temp
-                            if (temp > tMax) tMax = temp
-                        }
-                        val precip = weatherObj?.optDouble("precip", Double.NaN) ?: f.optDouble("precipitation", Double.NaN)
-                        if (precip.isFinite()) precipSumDay += precip
-                        val cloud = weatherObj?.optDouble("clouds", Double.NaN) ?: f.optDouble("cloud_cover", Double.NaN)
-                        if (cloud.isFinite()) { cloudSum += cloud; cloudCount++ }
+                    val overall = f.optJSONObject("activity")?.optInt("overall", Int.MIN_VALUE) ?: Int.MIN_VALUE
+                    if (overall != Int.MIN_VALUE) { sumScore += overall.toDouble(); countScore++ }
+                    val weatherObj = f.optJSONObject("weather")
+                    val temp = weatherObj?.optDouble("temperature", Double.NaN) ?: f.optDouble("temperature", Double.NaN)
+                    if (temp.isFinite()) {
+                        if (temp < tMin) tMin = temp
+                        if (temp > tMax) tMax = temp
                     }
-                    val dayAvgScore = if (countScore > 0) (sumScore / countScore).toInt().coerceIn(0,100) else score.overall
-                    val dayTempMin = if (tMin.isFinite()) tMin else tempMin
-                    val dayTempMax = if (tMax.isFinite()) tMax else tempMax
-                    val dayCloudAvg = if (cloudCount > 0) cloudSum / cloudCount else cloudAvg
-                    val dayPrecip = precipSumDay
-
-                    val displayGenerated = try {
-                        // mostrar fecha en formato legible
-                        val ld = LocalDate.parse(dateStr)
-                        ld.format(DateTimeFormatter.ofPattern("dd/MM"))
-                    } catch (_: Exception) {
-                        dateStr
+                    val precip = weatherObj?.optDouble("precip", Double.NaN) ?: f.optDouble("precipitation", Double.NaN)
+                    if (precip.isFinite()) precipSumDay += precip
+                    val cloud = weatherObj?.optDouble("clouds", Double.NaN) ?: f.optDouble("cloud_cover", Double.NaN)
+                    if (cloud.isFinite()) { cloudSum += cloud; cloudCount++ }
+                    // --- calcular métricas de viento y presión por día ---
+                    val windValForDay = weatherObj?.optDouble("wind_speed", Double.NaN) ?: f.optDouble("windSpeed", Double.NaN)
+                    if (windValForDay.isFinite()) {
+                        dayWindSum += windValForDay
+                        dayWindCount++
+                        if (windValForDay > dayWindMax) dayWindMax = windValForDay
                     }
-
-                    // Construir la serie horaria para este día (usar lógica similar a la del día principal)
-                    val dailyHourlyEntries = mutableListOf<HourlyEntry>()
-                    for (f2 in list) {
-                        try {
-                            val time = f2.optString("time", "")
-                            val weatherObj = f2.optJSONObject("weather")
-                            val temp = weatherObj?.optDouble("temperature", Double.NaN) ?: f2.optDouble("temperature", Double.NaN)
-                            val precip = weatherObj?.optDouble("precip", Double.NaN) ?: f2.optDouble("precipitation", Double.NaN)
-                            val wind = weatherObj?.optDouble("wind_speed", Double.NaN) ?: f2.optDouble("windSpeed", Double.NaN)
-
-                            val windDirCandidates = listOf(
-                                weatherObj?.optDouble("wind_direction", Double.NaN) ?: Double.NaN,
-                                weatherObj?.optDouble("wind_deg", Double.NaN) ?: Double.NaN,
-                                weatherObj?.optDouble("winddir", Double.NaN) ?: Double.NaN,
-                                weatherObj?.optDouble("wind_direction_deg", Double.NaN) ?: Double.NaN,
-                                f2.optDouble("wind_direction", Double.NaN),
-                                f2.optDouble("wind_deg", Double.NaN),
-                                f2.optDouble("winddir", Double.NaN)
-                            )
-                            val windDirRaw = windDirCandidates.firstOrNull { it.isFinite() } ?: Double.NaN
-
-                            val pop1 = weatherObj?.optDouble("pop", Double.NaN) ?: Double.NaN
-                            val pop2 = f2.optJSONObject("weather")?.optDouble("pop", Double.NaN) ?: Double.NaN
-                            val popVal = when {
-                                pop1.isFinite() -> pop1
-                                pop2.isFinite() -> pop2
-                                else -> Double.NaN
-                            }
-
-                            val cloudVal = weatherObj?.optDouble("clouds", Double.NaN) ?: f2.optJSONObject("weather").optDouble("clouds", Double.NaN)
-
-                            val isDayVal = when {
-                                weatherObj?.has("is_day") == true -> weatherObj.optBoolean("is_day")
-                                f2.has("is_day") -> f2.optBoolean("is_day", true)
-                                else -> null
-                            }
-
-                            val overall = f2.optJSONObject("activity")?.optInt("overall", Int.MIN_VALUE) ?: Int.MIN_VALUE
-                            val confD = f2.optJSONObject("activity")?.optDouble("confidence", Double.NaN) ?: Double.NaN
-                            val confPct = if (confD.isFinite()) (confD * 100).toInt() else null
-
-                            val tempVal = if (temp.isFinite()) temp else null
-                            val precipVal = if (precip.isFinite()) precip else null
-                            val windVal = if (wind.isFinite()) wind else null
-                            val windDirVal = if (windDirRaw.isFinite()) windDirRaw else null
-                            val scoreVal = if (overall != Int.MIN_VALUE) overall else null
-
-                            val condRaw = weatherObj?.optString("condition")?.takeIf { it.isNotBlank() } ?: f2.optString("condition", "").takeIf { it.isNotBlank() }
-                            val condition = condRaw ?: run {
-                                val isPrecip = (popVal.isFinite() && popVal >= 0.25)
-                                when {
-                                    isPrecip -> "rain"
-                                    (cloudVal.isFinite() && cloudVal >= 60.0) -> "cloudy"
-                                    isDayVal == false -> "night"
-                                    else -> "clear"
-                                }
-                            }
-
-                            dailyHourlyEntries.add(
-                                HourlyEntry(
-                                    time = time,
-                                    temperature = tempVal,
-                                    precipitation = precipVal,
-                                    windSpeed = windVal,
-                                    windDirectionDeg = windDirVal,
-                                    score = scoreVal,
-                                    confidencePct = confPct,
-                                    precipitationProbability = if (popVal.isFinite()) popVal else null,
-                                    cloudCover = if (cloudVal.isFinite()) cloudVal else null,
-                                    isDay = isDayVal,
-                                    condition = condition
-                                )
-                            )
-                        } catch (_: Exception) {}
+                    // intentar obtener ráfaga explícita si existe
+                    val gustVal = weatherObj?.optDouble("wind_gust", Double.NaN) ?: f.optDouble("wind_gust", Double.NaN)
+                    if (gustVal.isFinite() && gustVal > dayGustMax) dayGustMax = gustVal
+                    // presión por hora (varios proveedores usan nombres distintos)
+                    val presVal = weatherObj?.optDouble("pressure", Double.NaN)
+                        ?: weatherObj?.optDouble("pressure_hPa", Double.NaN)
+                        ?: f.optDouble("pressure", Double.NaN)
+                    if (presVal.isFinite()) {
+                        if (presVal < dayPressureMin) dayPressureMin = presVal
+                        if (presVal > dayPressureMax) dayPressureMax = presVal
                     }
-                    // ordenar y limitar (mostrar hasta 24 horas)
-                    try {
-                        dailyHourlyEntries.sortBy { e -> try { parseIso(e.time).time } catch (_: Exception) { Long.MAX_VALUE } }
-                        if (dailyHourlyEntries.size > 24) {
-                            val keep = dailyHourlyEntries.take(24)
-                            dailyHourlyEntries.clear()
-                            dailyHourlyEntries.addAll(keep)
-                        }
-                    } catch (_: Exception) {}
+                 }
+                // calcular promedios/fallbacks para viento y presión del día
+                val dayWindAvg = if (dayWindCount > 0) (dayWindSum / dayWindCount) else windAvgMin
+                val dayWindMaxFinal = if (dayWindMax.isFinite()) dayWindMax else windAvgMax
+                val dayGustMaxFinal = if (dayGustMax.isFinite()) dayGustMax else windMax
+                val dayPressureMinFinal = if (dayPressureMin.isFinite()) dayPressureMin else pressureMin
+                val dayPressureMaxFinal = if (dayPressureMax.isFinite()) dayPressureMax else pressureMax
 
-                    // Calcular bestWindows para este día a partir de dailyHourlyEntries
-                     val itemsForDay = dailyHourlyEntries.mapNotNull { e -> e.score?.let { Pair(e.time, it.toDouble()) } }
-                     val bestWindowsForDay: List<Pair<String, Int>> = try {
-                         val bw = ScoringTsPort.findBestWindows(itemsForDay)
-                         bw.map { w ->
-                             val startText = isoToHHmm(w.start)
-                             val endText = isoToHHmm(w.end)
-                             ("$startText - $endText") to w.score
+                // Calcular otras métricas diarias que faltaban: promedio de score, temp min/max y precip
+                val dayAvgScore = if (countScore > 0) (sumScore / countScore).toInt().coerceIn(0, 100) else score.overall
+                val dayTempMin = if (tMin.isFinite()) tMin else tempMin
+                val dayTempMax = if (tMax.isFinite()) tMax else tempMax
+                val dayPrecip = precipSumDay
+
+                // (intentionally keep dateStr as ISO yyyy-MM-dd for generatedAt; no displayGenerated needed)
+
+                 // Construir la serie horaria para este día (usar lógica similar a la del día principal)
+                 val dailyHourlyEntries = mutableListOf<HourlyEntry>()
+                 for (f2 in list) {
+                     try {
+                         val time = f2.optString("time", "")
+                         val weatherObj = f2.optJSONObject("weather")
+                         val temp = weatherObj?.optDouble("temperature", Double.NaN) ?: f2.optDouble("temperature", Double.NaN)
+                         val precip = weatherObj?.optDouble("precip", Double.NaN) ?: f2.optDouble("precipitation", Double.NaN)
+                         val wind = weatherObj?.optDouble("wind_speed", Double.NaN) ?: f2.optDouble("windSpeed", Double.NaN)
+
+                         val windDirCandidates = listOf(
+                             weatherObj?.optDouble("wind_direction", Double.NaN) ?: Double.NaN,
+                             weatherObj?.optDouble("wind_deg", Double.NaN) ?: Double.NaN,
+                             weatherObj?.optDouble("winddir", Double.NaN) ?: Double.NaN,
+                             weatherObj?.optDouble("wind_direction_deg", Double.NaN) ?: Double.NaN,
+                             f2.optDouble("wind_direction", Double.NaN),
+                             f2.optDouble("wind_deg", Double.NaN),
+                             f2.optDouble("winddir", Double.NaN)
+                         )
+                         val windDirRaw = windDirCandidates.firstOrNull { it.isFinite() } ?: Double.NaN
+
+                         val pop1 = weatherObj?.optDouble("pop", Double.NaN) ?: Double.NaN
+                         val pop2 = f2.optJSONObject("weather")?.optDouble("pop", Double.NaN) ?: Double.NaN
+                         val popVal = when {
+                             pop1.isFinite() -> pop1
+                             pop2.isFinite() -> pop2
+                             else -> Double.NaN
                          }
-                     } catch (_: Exception) { emptyList() }
 
-                    // Mejor y peor hora del día (usar scores presentes en dailyHourlyEntries)
-                    val scoredHours = dailyHourlyEntries.filter { it.score != null }
-                    val bestHourlyEntry = scoredHours.maxByOrNull { it.score ?: Int.MIN_VALUE }
-                    val worstHourlyEntry = scoredHours.minByOrNull { it.score ?: Int.MAX_VALUE }
-                    val bestHourTimeForDay = bestHourlyEntry?.time?.let { isoToHHmm(it) } ?: "—"
-                    val bestHourScoreForDay = bestHourlyEntry?.score ?: dayAvgScore
-                    val worstHourTimeForDay = worstHourlyEntry?.time?.let { isoToHHmm(it) } ?: "—"
-                    val worstHourScoreForDay = worstHourlyEntry?.score ?: dayAvgScore
+                         val cloudVal = weatherObj?.optDouble("clouds", Double.NaN) ?: f2.optJSONObject("weather")?.optDouble("clouds", Double.NaN) ?: Double.NaN
 
-                    // Confidence media del día (si hay confidencias por hora), fallback al global
-                    val confList = dailyHourlyEntries.mapNotNull { it.confidencePct }
-                    val dayAvgConfidencePct = if (confList.isNotEmpty()) confList.average().toInt() else avgConfidencePct
+                         val isDayVal = when {
+                             weatherObj?.has("is_day") == true -> weatherObj.optBoolean("is_day")
+                             f2.has("is_day") -> f2.optBoolean("is_day", true)
+                             else -> null
+                         }
 
-                    val compact = SimpleForecast(
-                        generatedAt = displayGenerated,
-                        locationName = locationName,
-                        dayAvg = dayAvgScore,
-                        bestHourTime = bestHourTimeForDay,
-                        bestHourScore = bestHourScoreForDay,
-                        worstHourTime = worstHourTimeForDay,
-                        worstHourScore = worstHourScoreForDay,
-                        avgConfidencePct = dayAvgConfidencePct,
-                        precipSum = dayPrecip,
-                        cloudAvg = dayCloudAvg,
-                        humidityAvg = humidityAvg,
-                        tempMin = dayTempMin,
-                        tempMax = dayTempMax,
-                        windAvgMin = windAvgMin,
-                        windAvgMax = windAvgMax,
-                        windMax = windMax,
-                        pressureMin = pressureMin,
-                        pressureMax = pressureMax,
-                        bestWindows = bestWindowsForDay,
-                        sunrise = astroInfo.sunrise,
-                        sunset = astroInfo.sunset,
-                        moonInfo = moonInfo,
-                        hydroText = hydroText,
-                        hourly = dailyHourlyEntries,
-                        otherDays = emptyList()
-                    )
-                    otherDaysList.add(compact)
-                }
-                // ordenar por fecha ascendente
-                //otherDaysList.sortBy { it.generatedAt }
+                         val overall = f2.optJSONObject("activity")?.optInt("overall", Int.MIN_VALUE) ?: Int.MIN_VALUE
+                         val confD = f2.optJSONObject("activity")?.optDouble("confidence", Double.NaN) ?: Double.NaN
+                         val confPct = if (confD.isFinite()) (confD * 100).toInt() else null
+
+                         val tempVal = if (temp.isFinite()) temp else null
+                         val precipVal = if (precip.isFinite()) precip else null
+                         val windVal = if (wind.isFinite()) wind else null
+                         val windDirVal = if (windDirRaw.isFinite()) windDirRaw else null
+                         val scoreVal = if (overall != Int.MIN_VALUE) overall else null
+                         // extraer presión horaria para dailyHourlyEntries
+                         val presValHour2 = weatherObj?.optDouble("pressure", Double.NaN)
+                             ?: weatherObj?.optDouble("pressure_hPa", Double.NaN)
+                             ?: f2.optDouble("pressure", Double.NaN)
+                         val presVal2 = if (presValHour2.isFinite()) presValHour2 else Double.NaN
+
+                         // Condición textual (si no viene explícita intentar inferirla)
+                         val condRaw = weatherObj?.optString("condition")?.takeIf { it.isNotBlank() } ?: f2.optString("condition", "").takeIf { it.isNotBlank() }
+                         val condition = condRaw ?: run {
+                             val isPrecip = (popVal.isFinite() && popVal >= 0.25)
+                             when {
+                                 isPrecip -> "rain"
+                                 (cloudVal.isFinite() && cloudVal >= 60.0) -> "cloudy"
+                                 isDayVal == false -> "night"
+                                 else -> "clear"
+                             }
+                         }
+
+                         dailyHourlyEntries.add(
+                             HourlyEntry(
+                                 time = time,
+                                 temperature = tempVal,
+                                 precipitation = precipVal,
+                                 pressure = if (presVal2.isFinite()) presVal2 else null,
+                                 windSpeed = windVal,
+                                 windDirectionDeg = windDirVal,
+                                 score = scoreVal,
+                                 confidencePct = confPct,
+                                 precipitationProbability = if (popVal.isFinite()) popVal else null,
+                                 cloudCover = if (cloudVal.isFinite()) cloudVal else null,
+                                 isDay = isDayVal,
+                                 condition = condition
+                             )
+                         )
+                     } catch (_: Exception) {}
+                 }
+                 // ordenar y limitar (mostrar hasta 24 horas)
+                 try {
+                     dailyHourlyEntries.sortBy { e -> try { parseIso(e.time).time } catch (_: Exception) { Long.MAX_VALUE } }
+                     if (dailyHourlyEntries.size > 24) {
+                         val keep = dailyHourlyEntries.take(24)
+                         dailyHourlyEntries.clear()
+                         dailyHourlyEntries.addAll(keep)
+                     }
+                 } catch (_: Exception) {}
+
+                 // Calcular bestWindows para este día a partir de dailyHourlyEntries
+                 val itemsForDay = dailyHourlyEntries.mapNotNull { e -> e.score?.let { Pair(e.time, it.toDouble()) } }
+                 val bestWindowsForDay: List<Pair<String, Int>> = try {
+                     val bw = ScoringTsPort.findBestWindows(itemsForDay)
+                     bw.map { w ->
+                         val startText = isoToHHmm(w.start)
+                         val endText = isoToHHmm(w.end)
+                         ("$startText - $endText") to w.score
+                     }
+                 } catch (_: Exception) { emptyList() }
+
+                // Mejor y peor hora del día (usar scores presentes en dailyHourlyEntries)
+                val scoredHours = dailyHourlyEntries.filter { it.score != null }
+                val bestHourlyEntry = scoredHours.maxByOrNull { it.score ?: Int.MIN_VALUE }
+                val worstHourlyEntry = scoredHours.minByOrNull { it.score ?: Int.MAX_VALUE }
+                val bestHourTimeForDay = bestHourlyEntry?.time?.let { isoToHHmm(it) } ?: "—"
+                // Recalcular la media del día a partir de las horas si hay scores por hora
+                val dayAvgScoreFromHours: Int? = if (scoredHours.isNotEmpty()) {
+                    val avg = scoredHours.map { it.score!!.toDouble() }.average()
+                    avg.toInt().coerceIn(0, 100)
+                } else null
+                val dayAvgScoreFinal = dayAvgScoreFromHours ?: dayAvgScore
+                val bestHourScoreForDay = bestHourlyEntry?.score ?: dayAvgScoreFinal
+                val worstHourTimeForDay = worstHourlyEntry?.time?.let { isoToHHmm(it) } ?: "—"
+                val worstHourScoreForDay = worstHourlyEntry?.score ?: dayAvgScoreFinal
+
+                // calcular promedio de confianza diario a partir de hourlyEntries si está disponible; fallback al avg global
+                val dayAvgConfidencePct: Int = try {
+                    val confs = dailyHourlyEntries.mapNotNull { it.confidencePct }
+                    if (confs.isNotEmpty()) confs.average().toInt() else avgConfidencePct
+                } catch (_: Exception) { avgConfidencePct }
+
+                val compact = SimpleForecast(
+                     generatedAt = dateStr,
+                     locationName = locationName,
+                     dayAvg = dayAvgScoreFinal,
+                     bestHourTime = bestHourTimeForDay,
+                     bestHourScore = bestHourScoreForDay,
+                     worstHourTime = worstHourTimeForDay,
+                     worstHourScore = worstHourScoreForDay,
+                     avgConfidencePct = dayAvgConfidencePct,
+                     precipSum = dayPrecip,
+                     humidityAvg = humidityAvg,
+                     tempMin = dayTempMin,
+                     tempMax = dayTempMax,
+                     windMin = dayWindAvg,
+                     windAvgMin = dayWindAvg,
+                     windAvgMax = dayWindMaxFinal,
+                     windMax = dayGustMaxFinal,
+                     pressureMin = dayPressureMinFinal,
+                     pressureMax = dayPressureMaxFinal,
+                     bestWindows = bestWindowsForDay,
+                     sunrise = astroInfo.sunrise,
+                     sunset = astroInfo.sunset,
+                     moonInfo = moonInfo,
+                     hydroText = hydroText,
+                     hourly = dailyHourlyEntries,
+                     otherDays = emptyList(),
+                     cloudAvg = cloudAvg
+                 )
+                 Log.d("ForecastActivity", "Built otherDay: date=$dateStr dayAvg=${compact.dayAvg} hourlyCount=${compact.hourly.size}")
+                 otherDaysList.add(compact)
             }
+            // ordenar por fecha ascendente
+            //otherDaysList.sortBy { it.generatedAt }
+        }
         } catch (_: Exception) { /* ignore */ }
 
-         return SimpleForecast(
-             locationName = locationName,
-             generatedAt = generatedAt,
-             dayAvg = score.overall.coerceIn(0, 100),
-             bestHourTime = bestHourTime,
-             bestHourScore = bestHourScore.coerceIn(0, 100),
-             worstHourTime = worstHourTime,
-             worstHourScore = worstHourScore.coerceIn(0, 100),
-             avgConfidencePct = avgConfidencePct,
-             tempMin = tempMin,
-             tempMax = tempMax,
-             precipSum = precipSum,
-             humidityAvg = humidityAvg,
-             windAvgMin = windAvgMin,
-             windAvgMax = windAvgMax,
-             windMax = windMax,
-             pressureMin = pressureMin,
-             pressureMax = pressureMax,
+         val top = SimpleForecast(
+              locationName = locationName,
+              generatedAt = generatedAt,
+              dayAvg = score.overall.coerceIn(0, 100),
+              bestHourTime = bestHourTime,
+              bestHourScore = bestHourScore.coerceIn(0, 100),
+              worstHourTime = worstHourTime,
+              worstHourScore = worstHourScore.coerceIn(0, 100),
+              avgConfidencePct = avgConfidencePct,
+              tempMin = tempMin,
+              tempMax = tempMax,
+              precipSum = precipSum,
+              humidityAvg = humidityAvg,
+              windMin = windAvgMin,
+              windAvgMin = windAvgMin,
+              windAvgMax = windAvgMax,
+              windMax = windMax,
+              pressureMin = pressureMin,
+              pressureMax = pressureMax,
              // Priorizar ventanas del día actual si existen
              bestWindows = if (bestWindowsTodayList.isNotEmpty()) bestWindowsTodayList else bestWindowsList,
              sunrise = astroInfo.sunrise,
@@ -989,6 +1014,8 @@ class ForecastActivity : ComponentActivity() {
              cloudAvg = cloudAvg,
              otherDays = otherDaysList
          )
+         Log.d("ForecastActivity", "Returning top SimpleForecast: location=$locationName dayAvg=${top.dayAvg} otherDays=${otherDaysList.size}")
+         return top
      }
 
     private fun parseIso(s: String): Date {
@@ -1002,7 +1029,7 @@ class ForecastActivity : ComponentActivity() {
                 } catch (_: Exception) {
                 }
                 try {
-                    val odt = java.time.OffsetDateTime.parse(s)
+                    val odt = OffsetDateTime.parse(s)
                     return Date.from(odt.toInstant())
                 } catch (_: Exception) {
                 }

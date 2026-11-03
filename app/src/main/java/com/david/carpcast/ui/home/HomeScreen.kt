@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.InvertColors
@@ -52,8 +53,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.ui.Alignment
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.heightIn
@@ -92,8 +98,9 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlin.coroutines.resume
 import androidx.compose.foundation.Image
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.rotate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -213,35 +220,74 @@ fun HomeScreenContent(
         // si el usuario concede el permiso, se puede intentar obtener la ubicación cuando corresponda
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .verticalScroll(scroll)
-                .padding(16.dp)
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Hero()
-            Spacer(Modifier.height(16.dp))
-
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(stringResource(R.string.species_title), fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(12.dp))
-                    // SpeciesGrid accepts an icon provider lambda; defaults to Pets if not provided.
-                    SpeciesGrid(speciesOptions, selectedSpecies, onSelect = { selectedSpecies = it })
+    // Shared function to start forecast - available to LastForecastCard and primary CTA
+    fun startForecastShared() {
+        showLoadingForecast = true
+        scope.launch {
+            try {
+                val repository = ForecastRepository()
+                val loc = selectedLocation ?: LocationModel(defaultLocationName, 40.4168, -3.7038)
+                val forecastJson = withContext(Dispatchers.IO) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        repository.buildForecastJsonReal(
+                            loc.latitude,
+                            loc.longitude,
+                            selectedSpecies.id
+                        ).toString()
+                    } else {
+                        "{ \"lat\": ${loc.latitude}, \"lon\": ${loc.longitude}, \"mode\": \"${selectedSpecies.id}\" }"
+                    }
                 }
+                val intent = Intent(context, ForecastActivity::class.java).apply {
+                    putExtra(ForecastActivity.EXTRA_FORECAST_JSON, forecastJson)
+                }
+                context.startActivity(intent)
+                delay(400)
+            } catch (_: IOException) {
+                // manejar error
+            } catch (_: Exception) {
+                // manejar error
+            } finally {
+                showLoadingForecast = false
             }
+        }
+    }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = com.david.carpcast.ui.AppNavy) {
+        Column(
+             modifier = Modifier
+                 .verticalScroll(scroll)
+                 .padding(16.dp)
+                 .fillMaxWidth(),
+             horizontalAlignment = Alignment.CenterHorizontally
+         ) {
+            Hero()
+            Spacer(Modifier.height(12.dp))
+            // Last forecast quick access card
+            LastForecastCard(
+                species = selectedSpecies.label,
+                location = selectedLocation?.name ?: stringResource(R.string.default_location_name),
+                score = 58,
+                bestTime = "06:00–08:00",
+                onOpenForecast = { startForecastShared() }
+            )
+             Spacer(Modifier.height(16.dp))
+
+            CollapsibleSpeciesCard(
+                options = speciesOptions,
+                selected = selectedSpecies,
+                onSelect = { selectedSpecies = it }
+            )
 
             Spacer(Modifier.height(12.dp))
 
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(stringResource(R.string.select_location_title), fontWeight = FontWeight.SemiBold)
+            Card(modifier = Modifier.fillMaxWidth(), shape = com.david.carpcast.ui.AppCardShape) {
+                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                     Text(stringResource(R.string.select_location_title), fontWeight = FontWeight.SemiBold)
 
-                    Spacer(Modifier.height(12.dp))
+                     Spacer(Modifier.height(12.dp))
 
-                    OutlinedTextField(
+                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { query -> onQueryChanged(query) },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
@@ -284,7 +330,7 @@ fun HomeScreenContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(com.david.carpcast.ui.AppCardShape)
                     ) {
                         val loc = selectedLocation ?: LocationModel(defaultLocationName, 40.4168, -3.7038)
                         val zoom = if (selectedLocation != null) 12 else 6
@@ -296,7 +342,7 @@ fun HomeScreenContent(
                                 .fillMaxSize()
                                 .background(MaterialTheme.colorScheme.surfaceVariant)) {
                                 // texto pequeño para identificar el placeholder
-                                Text(text = "Map preview", modifier = Modifier.align(Alignment.Center))
+                                Text(text = stringResource(id = R.string.map_preview), modifier = Modifier.align(Alignment.Center))
                             }
                         } else {
                             // vista real del mapa
@@ -454,48 +500,15 @@ fun HomeScreenContent(
                         Spacer(Modifier.height(12.dp))
                     }
 
+                    // Primary CTA: Get Forecast (centralized, prominent)
+                    Spacer(Modifier.height(8.dp))
                     Button(
-                        onClick = {
-                            // activar banner de carga y lanzar tarea en background
-                            showLoadingForecast = true
-                            scope.launch {
-                                try {
-                                    val repository = ForecastRepository()
-                                    val loc = selectedLocation ?: LocationModel(defaultLocationName, 40.4168, -3.7038)
-                                    // Ejecutar la generación del JSON en IO para no bloquear la UI
-                                    val forecastJson = withContext(Dispatchers.IO) {
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                            // Llamada real solo en dispositivos compatibles
-                                            repository.buildForecastJsonReal(
-                                                loc.latitude,
-                                                loc.longitude,
-                                                selectedSpecies.id
-                                            ).toString()
-                                        } else {
-                                            // Fallback seguro para previsualización y dispositivos antiguos
-                                            // Construimos un JSON mínimo que la Activity puede manejar
-                                            "{ \"lat\": ${loc.latitude}, \"lon\": ${loc.longitude}, \"mode\": \"${selectedSpecies.id}\" }"
-                                        }
-                                    }
-                                    val intent = Intent(context, ForecastActivity::class.java).apply {
-                                        putExtra(ForecastActivity.EXTRA_FORECAST_JSON, forecastJson)
-                                    }
-                                    // Iniciar la Activity y mantener el banner visible un breve momento
-                                    context.startActivity(intent)
-                                    // dar tiempo a que la transición sea percibida
-                                    delay(400)
-                                } catch (_: IOException) {
-                                    // manejar error (log, Snackbar, etc.)
-                                } catch (_: Exception) {
-                                    // cualquier fallo
-                                } finally {
-                                    // ocultar el banner en cualquier caso
-                                    showLoadingForecast = false
-                                }
-                            }
-                        },
+                        onClick = { startForecastShared() },
                         enabled = selectedLocation != null || searchQuery.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(horizontal = 0.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (selectedLocation != null || searchQuery.isNotBlank())
                                 MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
@@ -506,66 +519,37 @@ fun HomeScreenContent(
 
                     Spacer(Modifier.height(12.dp))
 
-                    if (selectedLocation != null) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(4.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                    FeaturesGrid()
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Footer()
+                }
+
+                // Overlay modal-style alert shown while loading forecast (modal, non-dismissible)
+                if (showLoadingForecast) {
+                    BackHandler(enabled = true) { /* ignore back while active */ }
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { /* do not dismiss automatically */ },
+                        title = { Text(stringResource(R.string.changing_page_title), fontWeight = FontWeight.SemiBold) },
+                        text = {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                                Spacer(Modifier.height(8.dp))
                                 Text(
-                                    selectedLocation.name,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    "${selectedLocation.latitude.format(4)}, ${selectedLocation.longitude.format(4)}",
+                                    stringResource(R.string.changing_page_text),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                                 )
                             }
-                            IconButton(onClick = { onClearSelection() }) {
-                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.back_desc))
-                            }
-                        }
-                    }
+                        },
+                        confirmButton = { /* no buttons */ },
+                        dismissButton = { /* no buttons */ }
+                    )
                 }
             }
-
-            Spacer(Modifier.height(12.dp))
-
-            FeaturesGrid()
-
-            Spacer(Modifier.height(12.dp))
-
-            Footer()
         }
 
-        // Overlay modal-style alert shown while loading forecast (modal, non-dismissible)
-        if (showLoadingForecast) {
-            BackHandler(enabled = true) { /* ignore back while active */ }
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { /* do not dismiss automatically */ },
-                title = { Text(stringResource(R.string.changing_page_title), fontWeight = FontWeight.SemiBold) },
-                text = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        androidx.compose.material3.CircularProgressIndicator()
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            stringResource(R.string.changing_page_text),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                        )
-                    }
-                },
-                confirmButton = { /* no buttons */ },
-                dismissButton = { /* no buttons */ }
-            )
-        }
     }
 }
 
@@ -600,7 +584,7 @@ fun Hero() {
             }
         }
         Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
         Spacer(Modifier.height(6.dp))
         Text(
             stringResource(R.string.carpcast_subtitle),
@@ -621,13 +605,19 @@ fun SpeciesGrid(options: List<SpeciesOption>, selected: SpeciesOption, onSelect:
             ) {
                 row.forEach { s ->
                     val isSelected = s.id == selected.id
+                    val containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
+                    val borderStroke = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                    val minHeight = if (isSelected) 156.dp else 140.dp
+                    val imageSize = if (isSelected) 80.dp else 72.dp
+
                     Card(
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 140.dp)
+                            .heightIn(min = minHeight)
                             .clickable { onSelect(s) },
                         shape = RoundedCornerShape(12.dp),
-                        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                        border = borderStroke,
+                        colors = CardDefaults.cardColors(containerColor = containerColor)
                     ) {
                         Column(
                             modifier = Modifier
@@ -639,7 +629,7 @@ fun SpeciesGrid(options: List<SpeciesOption>, selected: SpeciesOption, onSelect:
                             Image(
                                 painter = painterResource(id = s.iconRes),
                                 contentDescription = null,
-                                modifier = Modifier.size(72.dp)
+                                modifier = Modifier.size(imageSize)
                             )
                             Spacer(Modifier.height(10.dp))
                             Text(
@@ -666,6 +656,44 @@ fun SpeciesGrid(options: List<SpeciesOption>, selected: SpeciesOption, onSelect:
     }
 }
 
+
+@Composable
+fun LastForecastCard(
+    species: String,
+    location: String,
+    score: Int,
+    bestTime: String,
+    onOpenForecast: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth(),
+        shape = com.david.carpcast.ui.AppCardShape,
+        elevation = com.david.carpcast.ui.AppCardElevation()
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            // left: species + location
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Last forecast", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                Spacer(Modifier.height(4.dp))
+                Text("$species · $location", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Score: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                    Text(score.toString(), fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(12.dp))
+                    Icon(Icons.Default.AccessTime, contentDescription = null, tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(bestTime, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                }
+            }
+            Button(onClick = onOpenForecast) {
+                Text("Open forecast")
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
 
 @Composable
 fun FeaturesGrid() {
@@ -714,7 +742,7 @@ fun FeatureCard(
     icon: ImageVector,
     modifier: Modifier = Modifier
 ) {
-    Card(modifier = modifier.height(110.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+    Card(modifier = modifier.height(110.dp).fillMaxWidth(), shape = com.david.carpcast.ui.AppCardShape, elevation = com.david.carpcast.ui.AppCardElevation()) {
         Column(
             modifier = Modifier.padding(12.dp).fillMaxWidth(),
             verticalArrangement = Arrangement.Center,
@@ -731,7 +759,7 @@ fun FeatureCard(
 @Suppress("unused")
 @Composable
 fun InfoCard() {
-    Card(shape = RoundedCornerShape(12.dp)) {
+    Card(shape = com.david.carpcast.ui.AppCardShape, elevation = com.david.carpcast.ui.AppCardElevation()) {
         Box(
             modifier = Modifier.background(
                 Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary))
@@ -752,7 +780,7 @@ fun InfoCard() {
 @Suppress("unused")
 @Composable
 fun QuickAccess() {
-    Card(shape = RoundedCornerShape(12.dp)) {
+    Card(shape = com.david.carpcast.ui.AppCardShape, elevation = com.david.carpcast.ui.AppCardElevation()) {
         Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(stringResource(R.string.quick_title), fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
@@ -781,7 +809,7 @@ fun QuickAccess() {
 
 @Composable
 fun Footer() {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = com.david.carpcast.ui.AppCardShape, elevation = com.david.carpcast.ui.AppCardElevation()) {
         Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = stringResource(R.string.sources_label) + ": Open-Meteo · OpenStreetMap",
@@ -849,6 +877,44 @@ suspend fun fetchDeviceLocation(context: Context, defaultName: String = "My loca
             if (!cont.isCompleted) cont.resume(null)
         } catch (_: Exception) {
             if (!cont.isCompleted) cont.resume(null)
+        }
+    }
+}
+
+@Composable
+fun CollapsibleSpeciesCard(
+    options: List<SpeciesOption>,
+    selected: SpeciesOption,
+    onSelect: (SpeciesOption) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(true) }
+
+    Card(modifier = Modifier.fillMaxWidth(), shape = com.david.carpcast.ui.AppCardShape) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header: title + expand/collapse toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(stringResource(R.string.species_title), fontWeight = FontWeight.SemiBold)
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    modifier = Modifier.rotate(animateFloatAsState(if (expanded) 180f else 0f).value)
+                )
+            }
+
+            // Collapsible content
+            AnimatedVisibility(visible = expanded, enter = fadeIn(), exit = fadeOut()) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    // SpeciesGrid accepts an icon provider lambda; defaults to Pets if not provided.
+                    SpeciesGrid(options, selected, onSelect = onSelect)
+                }
+            }
         }
     }
 }

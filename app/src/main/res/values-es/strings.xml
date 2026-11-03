@@ -135,7 +135,6 @@
     <string name="unit_hpa">hPa</string>
     <string name="unit_kmh">km/h</string>
     <string name="unit_mm">mm</string>
-    <string name="unit_celsius">°C</string>
     <string name="confidence_badge">%1$s%% confianza</string>
     <string name="confidence_label">Confianza: %1$s</string>
     <string name="wind_label_value">Viento: %1$s %2$s</string>
@@ -144,4 +143,18 @@
     <string name="selected_label">Seleccionado: %1$s</string>
     <string name="best_time_label">Mejor hora: %1$s</string>
     <string name="prime_window_label">VENTANA PRINCIPAL — %1$s · %2$d</string>
+    <string name="prime_window_time">%1$s – %2$s</string>
+
+    <!-- Additional small labels localized to Spanish -->
+    <string name="hide">Ocultar</string>
+    <string name="show">Mostrar</string>
+    <string name="stop_loading">Detener carga</string>
+    <string name="prime_hours">Horas principales</string>
+    <string name="other_hours">Otras horas</string>
+    <string name="fire_score">🔥 %1$d</string>
+    <string name="map_preview">Vista previa del mapa</string>
+    <string name="prime_hours_debug">Horas principales: %1$d %2$s</string>
+    <string name="raw_windows_label">Ventanas crudas: %1$s</string>
+    <string name="score_out_of">%1$d / 100</string>
+    <string name="fire_emoji">🔥</string>
 </resources>
