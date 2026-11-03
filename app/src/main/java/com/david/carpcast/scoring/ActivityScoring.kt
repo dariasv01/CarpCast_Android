@@ -17,7 +17,9 @@ data class ScoringContextMs(
     val anchorNowMs: Long? = null,
     val lat: Double,
     val derived: DerivedWeatherFeatures? = null,
-    val waterTemp: Double? = null
+    val waterTemp: Double? = null,
+    val waterTempSource: WaterTemperatureSource = WaterTemperatureSource.UNKNOWN,
+    val dataCoverage: Double? = null
 )
 
 data class ActivityCalculateArgs(
@@ -44,9 +46,7 @@ private data class MeteoContextMs(
 object ActivityScoring {
 
     // ---- Species model (W/C) ----
-    private val lastMeteoModel: MutableMap<FishSpecies, MeteoModelInfo> = mutableMapOf()
-
-    private fun getLastMeteoModelInfo(species: FishSpecies): MeteoModelInfo? = lastMeteoModel[species]
+    private data class MeteoResult(val score: Double, val model: MeteoModelInfo?)
 
     @RequiresApi(Build.VERSION_CODES.O)
     fun calculate(args: ActivityCalculateArgs): ActivityScore {
@@ -64,7 +64,7 @@ object ActivityScoring {
         val derived = args.context?.derived
 
         // 1) Subscores
-        val meteo = calculateMeteoScoreSpecies(
+        val meteoResult = calculateMeteoScoreSpecies(
             weather = weather,
             derived = derived,
             ctx = MeteoContextMs(
@@ -77,15 +77,16 @@ object ActivityScoring {
             reasons = reasons
         )
 
+        val meteo = meteoResult.score
         val astroScore = calculateAstroScoreSpecies(astro, nowMs, normalizedSpecies, reasons)
-        val hydroScore = hydro?.let { calculateHydroScore(it, reasons) }
+        val hydroScore = if (normalizedSpecies == FishSpecies.carp) null else hydro?.let { calculateHydroScore(it, reasons) }
         val marineScore = marine?.let { calculateMarineScore(it, reasons) }
 
         // 2) Combine with renormalized weights (40/30/20/10)
         val baseMeteo = 0.4
-        val baseAstro = 0.3
+        val baseAstro = if (normalizedSpecies == FishSpecies.carp) 0.0 else 0.3
         val baseHydro = if (hydroScore != null) 0.2 else 0.0
-        val baseMarine = if (marineScore != null) 0.1 else 0.0
+        val baseMarine = if (normalizedSpecies != FishSpecies.carp && marineScore != null) 0.1 else 0.0
         val sum = baseMeteo + baseAstro + baseHydro + baseMarine
 
         val weightsUsed = ScoreBreakdown.WeightsUsed(
@@ -105,19 +106,16 @@ object ActivityScoring {
         val waterTemp = args.context?.waterTemp
         val tempProxy = if (waterTemp != null && waterTemp.isFinite()) waterTemp else weather.temperature
 
-        val seasonFactor = seasonFactor(nowMs, lat, normalizedSpecies)
-        val spawnPenalty = spawnPenalty(nowMs, lat, tempProxy, normalizedSpecies)
+        val seasonFactor = if (normalizedSpecies == FishSpecies.carp) 1.0 else seasonFactor(nowMs, lat, normalizedSpecies)
+        val spawnPenalty = if (normalizedSpecies == FishSpecies.carp) 1.0 else spawnPenalty(nowMs, lat, tempProxy, normalizedSpecies)
         val nightFactor = nightFactor(nowMs, astro, normalizedSpecies)
-        val moonFactor = moonFactor(astro.moonPhase)
+        val moonFactor = if (normalizedSpecies == FishSpecies.carp) 1.0 else moonFactor(astro.moonPhase)
 
         var totalScore = combined * seasonFactor * spawnPenalty * nightFactor * moonFactor
         totalScore = clamp(totalScore, 0.0, 100.0)
 
-        val confidence = calculateConfidenceV2(
-            hydro = hydro,
-            marine = marine,
-            derived = derived,
-            hasWaterTemp = (waterTemp != null && waterTemp.isFinite())
+        val confidence = args.context?.dataCoverage?.coerceIn(0.0, 1.0) ?: CarpRules.dataCoverage(
+            weather, args.context?.waterTempSource ?: WaterTemperatureSource.UNKNOWN, derived
         )
 
         val breakdown = ScoreBreakdown(
@@ -127,7 +125,7 @@ object ActivityScoring {
                 hydro = hydroScore?.roundToInt(),
                 marine = marineScore?.roundToInt()
             ),
-            meteoModel = getLastMeteoModelInfo(normalizedSpecies),
+            meteoModel = meteoResult.model,
             weightsUsed = weightsUsed,
             bioMultipliers = ScoreBreakdown.BioMultipliers(
                 seasonFactor = seasonFactor,
@@ -203,10 +201,10 @@ object ActivityScoring {
         ctx: MeteoContextMs,
         species: FishSpecies,
         reasons: MutableList<String>
-    ): Double {
+    ): MeteoResult {
         if (species == FishSpecies.general) {
             // Fallback a legacy si no hay especie concreta
-            return calculateWeatherScore(weather, reasons)
+            return MeteoResult(calculateWeatherScore(weather, reasons), null)
         }
 
         val cfg = getSpeciesConfig(species)
@@ -214,7 +212,7 @@ object ActivityScoring {
         val t = ctx.waterTemp?.takeIf { it.isFinite() } ?: weather.temperature
         val dewPoint = weather.dewPoint?.takeIf { it.isFinite() } ?: estimateDewPointC(weather.temperature, weather.humidity)
 
-        val tdSpread = if (dewPoint != null && t.isFinite()) (t - dewPoint) else null
+        val tdSpread = if (dewPoint != null && weather.temperature.isFinite()) (weather.temperature - dewPoint) else null
 
         val gustRatio = if ((weather.gustSpeed != null && weather.gustSpeed.isFinite()) && weather.windSpeed.isFinite()) {
             weather.gustSpeed / max(5.0, weather.windSpeed)
@@ -238,7 +236,7 @@ object ActivityScoring {
             "pop" to weather.precipitationProbability,
             "pressure" to weather.pressure,
             "ptrend3h" to dPressure3h,
-            "temp" to t,
+            "temp" to if (species == FishSpecies.carp) ctx.waterTemp else t,
             "rh" to weather.humidity,
             "tdSpread" to tdSpread,
             "radiation" to radiationNorm,
@@ -248,14 +246,21 @@ object ActivityScoring {
         val cFeatures: Map<String, Double?> = mapOf(
             "dP" to derived?.deltaPressure1h,
             "dPmean" to derived?.deltaPressure3hAvg,
-            "dT" to derived?.deltaTemp1h,
+            "dT" to if (species == FishSpecies.carp) derived?.deltaWaterTemp1h else derived?.deltaTemp1h,
             "rain" to derived?.rainPrev6h,
             "rainDays" to derived?.rainSum24h,
             "wstab" to derived?.windStability3h
         )
 
-        val wNorm = weightedNorm01(cfg.W, wFeatures, cfg.f)
-        val cNorm = weightedNorm01(cfg.C, cFeatures, cfg.f)
+        val functions = if (species == FishSpecies.carp) cfg.f + mapOf<String, (Double) -> Double>(
+            "temp" to { value -> CarpRules.temperature(value) },
+            "precip" to { value -> if (value <= 0.0) 0.5 else CarpRules.rain(cfg.f.getValue("precip")(value), ctx.waterTemp) },
+            "rain" to { value -> if (value <= 0.0) 0.5 else CarpRules.rain(cfg.f.getValue("rain")(value), ctx.waterTemp) },
+            "rainDays" to { value -> if (value <= 0.0) 0.5 else CarpRules.rain(cfg.f.getValue("rainDays")(value), ctx.waterTemp) },
+            "dT" to { _ -> CarpRules.temperatureChange(ctx.waterTemp, derived?.deltaWaterTemp1h) }
+        ) else cfg.f
+        val wNorm = weightedNorm01(cfg.W, wFeatures, functions)
+        val cNorm = weightedNorm01(cfg.C, cFeatures, functions)
 
         val horizonHours = horizonHoursAhead(ctx)
         val mixUsed = meteoMixForHorizon(species, cfg.meteoMix, horizonHours)
@@ -263,10 +268,12 @@ object ActivityScoring {
         val meteoNorm = clamp01(mixUsed.w * wNorm + mixUsed.c * cNorm)
         val meteoScore = meteoNorm * 100.0
 
-        lastMeteoModel[species] = MeteoModelInfo(
+        val model = MeteoModelInfo(
             wNorm = wNorm,
             cNorm = cNorm,
-            mix = Mix(mixUsed.w, mixUsed.c)
+            mix = Mix(mixUsed.w, mixUsed.c),
+            influences = featureInfluences(cfg.W, wFeatures, functions, mixUsed.w) +
+                featureInfluences(cfg.C, cFeatures, functions, mixUsed.c)
         )
 
         // Razones (top-level)
@@ -275,7 +282,7 @@ object ActivityScoring {
         if (cNorm >= 0.65) reasons += "Cambios/Acumulados (C) favorables"
         if (horizonHours > 6.0 && mixUsed.c > cfg.meteoMix.c) reasons += "Pronóstico a futuro: más peso a acumulados (C)"
 
-        return meteoScore
+        return MeteoResult(meteoScore, model)
     }
 
     private fun horizonHoursAhead(ctx: MeteoContextMs): Double {
@@ -453,8 +460,8 @@ object ActivityScoring {
     @RequiresApi(Build.VERSION_CODES.O)
     private fun calculateAstroScoreSpecies(astro: AstroData, nowMs: Long, species: FishSpecies, reasons: MutableList<String>): Double {
         // Legacy base: 50 + 30 si está dentro de ±1h de amanecer/atardecer
-        val sunriseMs = parseTimeMs(astro.sunrise)
-        val sunsetMs = parseTimeMs(astro.sunset)
+        val sunriseMs = TimeUtils.parseTimeMs(astro.sunrise) ?: return 50.0
+        val sunsetMs = TimeUtils.parseTimeMs(astro.sunset) ?: return 50.0
 
         val oneHour = 60L * 60L * 1000L
         val isGoldenHour =
@@ -939,6 +946,16 @@ object ActivityScoring {
     // ------------------------------------------------------------
     // Weighted norm (0..1) + math & time helpers (faltaban en este archivo)
     // ------------------------------------------------------------
+
+    private fun featureInfluences(weights: Map<String, Int>, features: Map<String, Double?>,
+        functions: Map<String, (Double) -> Double>, mix: Double): List<FactorInfluence> {
+        val present = weights.filter { (key, _) -> features[key]?.isFinite() == true && functions[key] != null }
+        val total = present.values.sum().toDouble()
+        if (total <= 0) return emptyList()
+        return present.map { (key, weight) ->
+            FactorInfluence(key, (clamp01(functions.getValue(key)(features.getValue(key)!!)) - 0.5) * weight / total * mix * 100.0)
+        }
+    }
 
     private fun weightedNorm01(
         weights: Map<String, Int>,

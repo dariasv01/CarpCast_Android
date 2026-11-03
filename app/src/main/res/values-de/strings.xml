@@ -30,8 +30,8 @@
     <string name="day_avg_label">Tagesdurchschnitt</string>
     <string name="best_hour_label">Beste Stunde</string>
     <string name="worst_hour_label">Schlechteste Stunde</string>
-    <string name="avg_confidence_label">Durchschnittliche Sicherheit</string>
-    <string name="block_summary_note">Zusammenfassung basierend auf stündlichen Scores und Vertrauen.</string>
+    <string name="avg_confidence_label">Datenabdeckung</string>
+    <string name="block_summary_note">Orientierungsindex. Die Datenabdeckung ist keine Fangwahrscheinlichkeit.</string>
 
     <string name="temperature_label">Temperatur</string>
     <string name="rain_total_label">Regen gesamt</string>
@@ -122,8 +122,8 @@
     <string name="unit_kmh">km/h</string>
     <string name="unit_mm">mm</string>
     <string name="unit_celsius">°C</string>
-    <string name="confidence_badge">%1$s%% Vertrauen</string>
-    <string name="confidence_label">Vertrauen: %1$s</string>
+    <string name="confidence_badge">Datenabdeckung %1$s%%</string>
+    <string name="confidence_label">Datenabdeckung: %1$s</string>
     <string name="wind_label_value">Wind: %1$s %2$s</string>
     <string name="precipitation_value">Niederschlag: %1$s %2$s</string>
     <string name="condition_label">Bedingung: %1$s</string>
@@ -135,4 +135,11 @@
     <string name="activity_trend_label">Aktivitätstrend: %1$s</string>
     <string name="prime_window_title">HAUPTZEITFENSTER</string>
     <string name="prime_window_time">%1$s – %2$s</string>
+    <string name="confidence_compact">Datenabdeckung %1$d%%</string>
+    <string name="water_measured">Wassertemperatur: gemessen</string>
+    <string name="water_estimated">Wassertemperatur: geschätzt</string>
+    <string name="water_mixed">Wassertemperatur: gemessen und geschätzt</string>
+    <string name="water_unknown">Wassertemperatur: nicht verfügbar</string>
+    <string name="data_quality_note">Orientierungsindex. Die Datenabdeckung ist keine Fangwahrscheinlichkeit.</string>
+    <string name="forecast_load_error">Vorhersage konnte nicht geladen werden. Verbindung prüfen und erneut versuchen.</string>
 </resources>

@@ -30,8 +30,8 @@
     <string name="day_avg_label">Moyenne du jour</string>
     <string name="best_hour_label">Meilleure heure</string>
     <string name="worst_hour_label">Pire heure</string>
-    <string name="avg_confidence_label">Confiance moyenne</string>
-    <string name="block_summary_note">Résumé généré à partir des scores horaires et de la confiance.</string>
+    <string name="avg_confidence_label">Couverture des données</string>
+    <string name="block_summary_note">Indice indicatif. La couverture des données ne représente pas une probabilité de capture.</string>
 
     <string name="temperature_label">Température</string>
     <string name="rain_total_label">Pluie totale</string>
@@ -122,8 +122,8 @@
     <string name="unit_kmh">km/h</string>
     <string name="unit_mm">mm</string>
     <string name="unit_celsius">°C</string>
-    <string name="confidence_badge">%1$s%% confiance</string>
-    <string name="confidence_label">Confiance: %1$s</string>
+    <string name="confidence_badge">Couverture des données %1$s%%</string>
+    <string name="confidence_label">Couverture des données: %1$s</string>
     <string name="wind_label_value">Vent: %1$s %2$s</string>
     <string name="precipitation_value">Précip: %1$s %2$s</string>
     <string name="condition_label">Condition: %1$s</string>
@@ -135,4 +135,11 @@
     <string name="activity_trend_label">Tendance : %1$s</string>
     <string name="prime_window_title">FENÊTRE PRINCIPALE</string>
     <string name="prime_window_time">%1$s – %2$s</string>
+    <string name="confidence_compact">Couverture des données %1$d%%</string>
+    <string name="water_measured">Température de l’eau : mesurée</string>
+    <string name="water_estimated">Température de l’eau : estimée</string>
+    <string name="water_mixed">Température de l’eau : mesurée et estimée</string>
+    <string name="water_unknown">Température de l’eau : indisponible</string>
+    <string name="data_quality_note">Indice indicatif. La couverture des données ne représente pas une probabilité de capture.</string>
+    <string name="forecast_load_error">Impossible de charger les prévisions. Vérifiez votre connexion et réessayez.</string>
 </resources>

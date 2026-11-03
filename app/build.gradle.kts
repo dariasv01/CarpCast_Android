@@ -34,8 +34,18 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildFeatures {
         compose = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
 
@@ -64,10 +74,25 @@ dependencies {
     implementation(libs.androidx.preference.ktx)
     implementation(libs.play.services.location)
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Keep the headless Android runtime and SDK cache inside the build directory.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    val runtimeHome = layout.buildDirectory.dir("test-home").get().asFile
+    val runtimeTmp = layout.buildDirectory.dir("test-tmp").get().asFile
+    doFirst { runtimeHome.mkdirs(); runtimeTmp.mkdirs() }
+    systemProperty("java.io.tmpdir", runtimeTmp.absolutePath)
+    systemProperty("user.home", runtimeHome.absolutePath)
+    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    maxHeapSize = "2g"
 }

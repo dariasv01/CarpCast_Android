@@ -204,7 +204,8 @@ fun HomeScreenContent(
         )
     }
 
-    var selectedSpecies by remember { mutableStateOf(speciesOptions.first()) }
+    var selectedSpeciesId by rememberSaveable { mutableStateOf(speciesOptions.first().id) }
+    val selectedSpecies = speciesOptions.first { it.id == selectedSpeciesId }
 
     val scroll = rememberScrollState()
 
@@ -233,20 +234,22 @@ fun HomeScreenContent(
                             loc.latitude,
                             loc.longitude,
                             selectedSpecies.id
-                        ).toString()
+                        ).apply { put("name", loc.name) }.toString()
                     } else {
                         "{ \"lat\": ${loc.latitude}, \"lon\": ${loc.longitude}, \"mode\": \"${selectedSpecies.id}\" }"
                     }
                 }
-                val intent = Intent(context, ForecastActivity::class.java).apply {
-                    putExtra(ForecastActivity.EXTRA_FORECAST_JSON, forecastJson)
+                // Forecasts exceed Binder's safe transaction size; send only a private file ID.
+                val snapshotId = withContext(Dispatchers.IO) {
+                    com.david.carpcast.journal.FieldStore(context).prepareSessionSnapshot(forecastJson)
                 }
+                val intent = ForecastActivity.snapshotIntent(context, snapshotId)
                 context.startActivity(intent)
                 delay(400)
-            } catch (_: IOException) {
-                // manejar error
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
-                // manejar error
+                android.widget.Toast.makeText(context, R.string.forecast_load_error, android.widget.Toast.LENGTH_LONG).show()
             } finally {
                 showLoadingForecast = false
             }
@@ -263,20 +266,12 @@ fun HomeScreenContent(
          ) {
             Hero()
             Spacer(Modifier.height(12.dp))
-            // Last forecast quick access card
-            LastForecastCard(
-                species = selectedSpecies.label,
-                location = selectedLocation?.name ?: stringResource(R.string.default_location_name),
-                score = 58,
-                bestTime = "06:00–08:00",
-                onOpenForecast = { startForecastShared() }
-            )
-             Spacer(Modifier.height(16.dp))
-
+            com.david.carpcast.ui.HomeFieldTools()
+            Spacer(Modifier.height(16.dp))
             CollapsibleSpeciesCard(
                 options = speciesOptions,
                 selected = selectedSpecies,
-                onSelect = { selectedSpecies = it }
+                onSelect = { selectedSpeciesId = it.id }
             )
 
             Spacer(Modifier.height(12.dp))
@@ -504,13 +499,13 @@ fun HomeScreenContent(
                     Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = { startForecastShared() },
-                        enabled = selectedLocation != null || searchQuery.isNotBlank(),
+                        enabled = selectedLocation != null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .padding(horizontal = 0.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selectedLocation != null || searchQuery.isNotBlank())
+                            containerColor = if (selectedLocation != null)
                                 MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                         )
                     ) {
@@ -519,7 +514,7 @@ fun HomeScreenContent(
 
                     Spacer(Modifier.height(12.dp))
 
-                    FeaturesGrid()
+                    // Forecast and journal are the primary actions; keep marketing below the task flow.
 
                     Spacer(Modifier.height(12.dp))
 
@@ -560,7 +555,7 @@ fun Hero() {
         Spacer(Modifier.height(12.dp))
         Box(
             modifier = Modifier
-                .size(88.dp)
+                .size(56.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.verticalGradient(
@@ -589,7 +584,7 @@ fun Hero() {
         Text(
             stringResource(R.string.carpcast_subtitle),
             textAlign = TextAlign.Center,
-            color = Color.Gray
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -887,7 +882,7 @@ fun CollapsibleSpeciesCard(
     selected: SpeciesOption,
     onSelect: (SpeciesOption) -> Unit
 ) {
-    var expanded by rememberSaveable { mutableStateOf(true) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth(), shape = com.david.carpcast.ui.AppCardShape) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -899,7 +894,10 @@ fun CollapsibleSpeciesCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(stringResource(R.string.species_title), fontWeight = FontWeight.SemiBold)
+                Column {
+                    Text(stringResource(R.string.species_title), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(selected.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
                 Icon(
                     imageVector = Icons.Default.ArrowDropDown,
                     contentDescription = null,

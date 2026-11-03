@@ -13,6 +13,11 @@ import com.david.carpcast.scoring.WeatherData
 import com.david.carpcast.ui.SimpleForecast
 import com.david.carpcast.ui.HourlyEntry
 import com.david.carpcast.ui.theme.CarpCastTheme
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import com.david.carpcast.repository.ForecastRepository
+import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,82 +39,101 @@ import java.util.TimeZone
 import android.util.Log
 
 class ForecastActivity : ComponentActivity() {
+    private var forecastZone: ZoneId = ZoneId.systemDefault()
     companion object {
         const val EXTRA_FORECAST_JSON = "forecast_json"
+        const val EXTRA_USE_CACHE = "use_cache"
+        const val EXTRA_SNAPSHOT_ID = "forecast_snapshot_id"
+
+        fun snapshotIntent(context: android.content.Context, snapshotId: String) =
+            android.content.Intent(context, ForecastActivity::class.java)
+                .putExtra(EXTRA_SNAPSHOT_ID, snapshotId)
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        val json = intent?.getStringExtra(EXTRA_FORECAST_JSON) ?: "{}"
-
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.rgb(7, 21, 34))
+        )
+        var json = intent?.getStringExtra(EXTRA_FORECAST_JSON) ?: ""
+        val store = com.david.carpcast.journal.FieldStore(this)
+        val snapshotId = intent.getStringExtra(EXTRA_SNAPSHOT_ID)
+        val cachedState = mutableStateOf(intent.getBooleanExtra(EXTRA_USE_CACHE, false) || (json.isBlank() && snapshotId == null))
+        val generatedState = mutableStateOf("")
+        val speciesState = mutableStateOf("carp")
         val forecastState: MutableState<SimpleForecast?> = mutableStateOf(null)
-        val loadingState: MutableState<Boolean> = mutableStateOf(false)
+        val loadingState = mutableStateOf(false)
 
-        val onRefreshLambda: () -> Unit = {
-            Log.d("ForecastActivity", "onRefreshLambda invoked. loadingState=${loadingState.value}")
-            if (!loadingState.value) {
-                Log.d("ForecastActivity", "Starting refresh: setting loadingState=true")
-                loadingState.value = true
-                CoroutineScope(Dispatchers.Default).launch {
-                    try {
-                        val score = parseAndScore(json)
-                        val forecastModel = mapScoreToSimpleForecast(json, score)
-                        runOnUiThread {
-                            forecastState.value = forecastModel
+        fun load(refresh: Boolean) {
+            if (loadingState.value) return
+            loadingState.value = true
+            lifecycleScope.launch {
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        val nextJson = if (refresh) {
+                            val previous = JSONObject(json)
+                            ForecastRepository().buildForecastJsonReal(
+                                previous.getDouble("lat"), previous.getDouble("lon"),
+                                previous.optString("species", "carp")
+                            ).toString()
+                        } else if (json.isBlank() && snapshotId != null) {
+                            store.sessionSnapshot(snapshotId)
+                        } else if (json.isBlank()) {
+                            requireNotNull(store.cachedForecast()) { "No saved forecast" }.json
+                        } else json
+                        val root = JSONObject(nextJson)
+                        forecastZone = runCatching { ZoneId.of(root.optString("timezone")) }.getOrDefault(ZoneId.systemDefault())
+                        val model = mapScoreToSimpleForecast(nextJson, parseAndScore(nextJson))
+                        if (refresh || !cachedState.value) {
+                            try { store.saveForecast(nextJson) }
+                            catch (_: Exception) { runOnUiThread { Toast.makeText(this@ForecastActivity, R.string.field_cache_error, Toast.LENGTH_LONG).show() } }
                         }
-                    } catch (e: Exception) {
-                        Log.d("ForecastActivity", "Refresh failed: ${e.message}")
-                    } finally {
-                        runOnUiThread {
-                            loadingState.value = false
-                            Log.d("ForecastActivity", "Refresh finished: setting loadingState=false")
-                        }
+                        nextJson to model
                     }
+                    json = result.first
+                    if (refresh) cachedState.value = false
+                    val root = JSONObject(json)
+                    generatedState.value = root.optString("generatedAt")
+                    speciesState.value = root.optString("species", "carp")
+                    // Keep large payloads in the private cache instead of growing activity state.
+                    intent.removeExtra(EXTRA_FORECAST_JSON)
+                    forecastState.value = result.second
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("ForecastActivity", "Unable to load forecast", e)
+                    Toast.makeText(this@ForecastActivity, R.string.forecast_load_error, Toast.LENGTH_LONG).show()
+                    if (forecastState.value == null) finish()
+                } finally {
+                    loadingState.value = false
                 }
-
-                // Safety timeout: if after 15s loadingState still true, reset it to avoid spinner stuck
-                CoroutineScope(Dispatchers.Default).launch {
-                    try {
-                        kotlinx.coroutines.delay(15_000)
-                        if (loadingState.value) {
-                            runOnUiThread {
-                                loadingState.value = false
-                                Log.d("ForecastActivity", "Safety timeout: forcing loadingState=false after 15s")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.d("ForecastActivity", "Safety timeout coroutine failed: ${e.message}")
-                    }
-                }
-            } else {
-                Log.d("ForecastActivity", "Refresh requested but already loading")
             }
         }
 
         setContent {
             CarpCastTheme {
-                // Mostrar ModernForecastScreen cuando haya datos; ForecastHost como fallback
                 forecastState.value?.let { model ->
-                    ModernForecastScreen(
-                        forecast = model,
-                        onBack = { finish() },
-                        onRefresh = onRefreshLambda,
-                        isLoadingState = loadingState,
-                    )
+                    ModernForecastScreen(forecast = model, onBack = { finish() },
+                        onRefresh = { load(true) }, isLoadingState = loadingState,
+                        generatedAt = generatedState.value, speciesId = speciesState.value, cached = cachedState.value,
+                        onRecord = {
+                            val snapshotJson = json
+                            lifecycleScope.launch {
+                                try {
+                                    val id = withContext(Dispatchers.IO) { store.prepareSessionSnapshot(snapshotJson) }
+                                    startActivity(android.content.Intent(this@ForecastActivity, com.david.carpcast.journal.JournalActivity::class.java)
+                                        .putExtra(com.david.carpcast.journal.JournalActivity.EXTRA_SNAPSHOT_ID, id))
+                                } catch (e: CancellationException) { throw e }
+                                catch (_: Exception) { Toast.makeText(this@ForecastActivity, R.string.field_storage_error, Toast.LENGTH_LONG).show() }
+                            }
+                        })
                 }
             }
         }
-
-        CoroutineScope(Dispatchers.Default).launch {
-            val score = parseAndScore(json)
-            val forecastModel = mapScoreToSimpleForecast(json, score)
-            runOnUiThread {
-                forecastState.value = forecastModel
-            }
-        }
+        load(false)
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -187,7 +211,7 @@ class ForecastActivity : ComponentActivity() {
 //                )
 //            }
 
-//            val weather = extractWeatherArrays(root)
+//            val weather = extractWeatherArrays(root, generatedAt)
 
             val astroInfo = extractAstroInfo(root)
             val astro = AstroData(
@@ -213,20 +237,9 @@ class ForecastActivity : ComponentActivity() {
              }
 
             // Extraer mode/species/anchorNow/lat/waterTemp desde JSON
-            val modeStr = root.optString("mode", "carpfishing")
-            val modeEnum = when (modeStr.lowercase(Locale.ROOT)) {
-                "predator" -> FishingMode.predator
-                else -> FishingMode.carpfishing
-            }
-            val speciesStr = root.optString("species", "general")
-            val speciesEnum = when (speciesStr.lowercase(Locale.ROOT)) {
-                "carp" -> FishSpecies.carp
-                "barbel" -> FishSpecies.barbel
-                "bass" -> FishSpecies.bass
-                "pike" -> FishSpecies.pike
-                "catfish" -> FishSpecies.catfish
-                else -> FishSpecies.general
-            }
+            val speciesEnum = SpeciesSelection.fromId(root.optString("species", "general"))
+            // Species is authoritative: older JSON omitted mode or always said carpfishing.
+            val modeEnum = SpeciesSelection.modeFor(speciesEnum)
             val anchorNowStr = root.optString("anchorNow", "")
             val anchorNow = if (anchorNowStr.isBlank()) null else parseIso(anchorNowStr)
             val lat = root.optDouble("lat", 0.0)
@@ -305,15 +318,16 @@ class ForecastActivity : ComponentActivity() {
         }
     }
 
-    private fun sumPrecipitation(root: JSONObject): Double {
+    private fun sumPrecipitation(root: JSONObject, date: String): Double {
         val arr = root.optJSONObject("raw_api")
             ?.optJSONObject("hourly")
             ?.optJSONArray("precipitation")
             ?: return 0.0
 
+        val times = root.optJSONObject("raw_api")?.optJSONObject("hourly")?.optJSONArray("time")
         var sum = 0.0
-        for (i in 0 until 24) {
-            sum += arr.optDouble(i, 0.0) // maneja Int/Double/null/strings numéricas
+        for (i in 0 until arr.length()) {
+            if (times?.optString(i)?.take(10) == date) sum += arr.optDouble(i, 0.0)
         }
         return sum
     }
@@ -396,7 +410,7 @@ class ForecastActivity : ComponentActivity() {
             }
         }
 
-        val moonIllum = astro?.optDouble("moonIllumination", Double.NaN)?.takeIf { !it.isNaN() }
+        val moonIllum = astro?.optDouble("moon_illumination", astro.optDouble("moonIllumination", Double.NaN))?.takeIf { !it.isNaN() }
         return AstroInfo(
             sunrise = sunrise,
             sunset = sunset,
@@ -428,15 +442,22 @@ class ForecastActivity : ComponentActivity() {
         }
     }
 
-    private fun extractWeatherArrays(root: JSONObject): WeatherArrays {
+    private fun extractWeatherArrays(root: JSONObject, date: String): WeatherArrays {
          val rawApi = root.optJSONObject("raw_api")
          val hourly = rawApi?.optJSONObject("hourly")
-        val humidityArray = hourly?.optJSONArray("relative_humidity_2m")
-         val cloudArray = hourly?.optJSONArray("cloud_cover")
-         val tempArray = hourly?.optJSONArray("temperature_2m")
-         val windAvg = hourly?.optJSONArray("wind_speed_10m")
-         val windGusts = hourly?.optJSONArray("wind_gusts_10m")
-         val pressureArray = hourly?.optJSONArray("surface_pressure")
+         fun selected(key: String): JSONArray? {
+             val values = hourly?.optJSONArray(key) ?: return null
+             val times = hourly.optJSONArray("time") ?: return null
+             return JSONArray().apply {
+                 for (i in 0 until times.length()) if (times.optString(i).take(10) == date) put(values.opt(i))
+             }
+         }
+         val humidityArray = selected("relative_humidity_2m")
+         val cloudArray = selected("cloud_cover")
+         val tempArray = selected("temperature_2m")
+         val windAvg = selected("wind_speed_10m")
+         val windGusts = selected("wind_gusts_10m")
+         val pressureArray = selected("pressure_msl")
          return WeatherArrays(
              humidityArray,
              cloudArray,
@@ -464,37 +485,29 @@ class ForecastActivity : ComponentActivity() {
         }
 
         // Use local ISO date (YYYY-MM-DD) for generatedAt so it matches otherDays keys
-        val generatedAt = LocalDate.now(ZoneId.systemDefault()).toString()
+        val available = root.optJSONArray("forecasts")
+        val dates = (0 until (available?.length() ?: 0)).mapNotNull {
+            available?.optJSONObject(it)?.optString("time")?.take(10)?.takeIf { day -> day.length == 10 }
+        }.distinct().sorted()
+        val today = LocalDate.now(forecastZone).toString()
+        val generatedAt = if (today in dates) today else dates.firstOrNull() ?: today
 
         // Temperaturas: intenta current, luego daily[0], fallback
         val current = root.optJSONObject("current")
 
-        val weatherArrays = extractWeatherArrays(root)
-        val humidityArray = weatherArrays.humidityArray
-        var humiditySum = 0.0
-        for (i in 0 until 24) {
-            val v = humidityArray?.optDouble(i, Double.NaN) ?: Double.NaN
-            humiditySum += v
+        val weatherArrays = extractWeatherArrays(root, generatedAt)
+        fun values(array: JSONArray?): List<Double> = (0 until (array?.length() ?: 0)).mapNotNull {
+            array?.optDouble(it, Double.NaN)?.takeIf { value -> value.isFinite() }
         }
-
-        val humidityAvg = humiditySum / 24.0
-
-        val cloudArray = weatherArrays.cloudArray
-        var cloudSum = 0.0
-        for (i in 0 until 24) {
-            val v = cloudArray?.optDouble(i, Double.NaN) ?: Double.NaN
-            cloudSum += v
-        }
-
-        val cloudAvg = cloudSum / 24.0
-
+        val humidityAvg = values(weatherArrays.humidityArray).takeIf { it.isNotEmpty() }?.average() ?: Double.NaN
+        val cloudAvg = values(weatherArrays.cloudArray).takeIf { it.isNotEmpty() }?.average() ?: Double.NaN
 
         var tempMin = Double.POSITIVE_INFINITY
         var tempMax = Double.NEGATIVE_INFINITY
 
         val tempArray = weatherArrays.tempArray
 
-        for (i in 0 until 24) {
+        for (i in 0 until (tempArray?.length() ?: 0)) {
             val v = tempArray?.optDouble(i, Double.NaN) ?: Double.NaN
             if (!v.isNaN()) {
                 if (v < tempMin) tempMin = v
@@ -504,7 +517,7 @@ class ForecastActivity : ComponentActivity() {
 
         val precipSum = when {
             root.optJSONObject("raw_api")?.optJSONObject("hourly")
-                ?.has("precipitation") == true -> sumPrecipitation(root)
+                ?.has("precipitation") == true -> sumPrecipitation(root, generatedAt)
 
             current?.has("rain") == true -> current.optDouble("rain", 0.0)
             else -> root.optDouble("precip", 0.0)
@@ -513,21 +526,20 @@ class ForecastActivity : ComponentActivity() {
         val windAvg = weatherArrays.windAvg
         val windGusts = weatherArrays.windGusts
 
-        var windAvgMin = 0.0
+        var windAvgMin = Double.POSITIVE_INFINITY
         var windAvgMax = Double.NEGATIVE_INFINITY
         var windMax = 0.0
 
-        for (i in 0 until 24) {
+        for (i in 0 until (windAvg?.length() ?: 0)) {
             val v = windAvg?.optDouble(i, Double.NaN) ?: Double.NaN
-            windAvgMin += v
             if (!v.isNaN()) {
+                if (v < windAvgMin) windAvgMin = v
                 if (v > windAvgMax) windAvgMax = v
             }
         }
-        windAvgMin /= 24.0
 
 
-        for (i in 0 until 24) {
+        for (i in 0 until (windGusts?.length() ?: 0)) {
             val v = windGusts?.optDouble(i, Double.NaN) ?: Double.NaN
             if (!v.isNaN()) {
                 if (v > windMax) windMax = v
@@ -539,7 +551,7 @@ class ForecastActivity : ComponentActivity() {
         var pressureMin = Double.POSITIVE_INFINITY
         var pressureMax = Double.NEGATIVE_INFINITY
 
-        for (i in 0 until 24) {
+        for (i in 0 until (pressure?.length() ?: 0)) {
             val v = pressure?.optDouble(i, Double.NaN) ?: Double.NaN
             if (!v.isNaN()) {
                 if (v < pressureMin) pressureMin = v
@@ -555,14 +567,14 @@ class ForecastActivity : ComponentActivity() {
             try {
                 val inst = try { Instant.parse(s) } catch (_: Exception) { null }
                 if (inst != null) {
-                    val ldt = LocalDateTime.ofInstant(inst, ZoneId.systemDefault())
+                    val ldt = LocalDateTime.ofInstant(inst, forecastZone)
                     return fmt.format(ldt.toLocalTime())
                 }
             } catch (_: Exception) {}
             try {
                 val odt = try { OffsetDateTime.parse(s) } catch (_: Exception) { null }
                 if (odt != null) {
-                    val local = odt.atZoneSameInstant(ZoneId.systemDefault()).toLocalTime()
+                    val local = odt.atZoneSameInstant(forecastZone).toLocalTime()
                     return fmt.format(local)
                 }
             } catch (_: Exception) {}
@@ -593,7 +605,7 @@ class ForecastActivity : ComponentActivity() {
          val hourlyEntries = mutableListOf<HourlyEntry>()
         // Calcular bestWindows para el día actual (si el JSON incluye forecasts)
         val bestWindowsTodayList: List<Pair<String, Int>> = try {
-            val todayLocal = LocalDate.now(ZoneId.systemDefault()).toString() // YYYY-MM-DD local
+            val todayLocal = generatedAt // YYYY-MM-DD local
              val forecastsArr = root.optJSONArray("forecasts")
              if (forecastsArr != null) {
                  for (i in 0 until forecastsArr.length()) {
@@ -603,7 +615,7 @@ class ForecastActivity : ComponentActivity() {
                     val timeLocalDate = try {
                         val parsed = parseIso(time)
                         val inst = Instant.ofEpochMilli(parsed.time)
-                        LocalDateTime.ofInstant(inst, ZoneId.systemDefault()).toLocalDate().toString()
+                        LocalDateTime.ofInstant(inst, forecastZone).toLocalDate().toString()
                     } catch (_: Exception) {
                         null
                     }
@@ -690,10 +702,14 @@ class ForecastActivity : ComponentActivity() {
                                  windDirectionDeg = windDirVal,
                                  score = scoreVal,
                                  confidencePct = confPct,
-                                 precipitationProbability = if (popVal.isFinite()) popVal else null,
+                                 precipitationProbability = if (popVal.isFinite()) (popVal / 100.0).coerceIn(0.0, 1.0) else null,
+                                 weatherCode = weatherObj?.optInt("weather_code", -1)?.takeIf { it >= 0 },
+                                 windGust = weatherObj?.optDouble("gust", Double.NaN)?.takeIf { it.isFinite() },
                                  cloudCover = if (cloudVal.isFinite()) cloudVal else null,
                                  isDay = isDayVal,
-                                 condition = condition
+                                 condition = condition,
+                                 waterTempSource = f.optJSONObject("activity")?.optString("waterTempSource"),
+                                 influences = parseInfluences(f.optJSONObject("activity"))
                              )
                          )
                      } catch (_: Exception) {}
@@ -702,11 +718,6 @@ class ForecastActivity : ComponentActivity() {
             // Ordenar la serie horaria por tiempo (si es posible) y limitar a 24
             try {
                 hourlyEntries.sortBy { e -> try { parseIso(e.time).time } catch (_: Exception) { Long.MAX_VALUE } }
-                if (hourlyEntries.size > 24) {
-                    val keep = hourlyEntries.take(24)
-                    hourlyEntries.clear()
-                    hourlyEntries.addAll(keep)
-                }
             } catch (_: Exception) {}
             val bestToday = ScoringTsPort.findBestWindows(itemsForToday)
             bestToday.map { bw -> "${isoToHHmm(bw.start)} - ${isoToHHmm(bw.end)}" to bw.score }
@@ -714,13 +725,13 @@ class ForecastActivity : ComponentActivity() {
              emptyList()
          }
 
-         val worstHourTime = itemsForToday.minByOrNull { it.second }?.first?.split("T")?.lastOrNull() ?: "—"
+         val worstHourTime = itemsForToday.minByOrNull { it.second }?.first?.let { isoToHHmm(it) } ?: "—"
          val worstHourScore = itemsForToday.minByOrNull { it.second }?.second?.toInt() ?: score.overall
          val bestHourTime =
-             itemsForToday.maxByOrNull { it.second }?.first?.split("T")?.lastOrNull() ?: "—"
+             itemsForToday.maxByOrNull { it.second }?.first?.let { isoToHHmm(it) } ?: "—"
          val  bestHourScore = itemsForToday.maxByOrNull { it.second }?.second?.toInt() ?: score.overall
 
-         val avgConfidencePct = (avgConfidence.average() * 100).toInt()
+         val avgConfidencePct = if (avgConfidence.isNotEmpty()) (avgConfidence.average() * 100).toInt() else 0
 
          val astroInfo = extractAstroInfo(root)
          val moonInfo = when {
@@ -751,7 +762,7 @@ class ForecastActivity : ComponentActivity() {
                     val time = f.optString("time", "")
                     val parsedDate = try {
                         val dt = parseIso(time)
-                        val local = Instant.ofEpochMilli(dt.time).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+                        val local = Instant.ofEpochMilli(dt.time).atZone(forecastZone).toLocalDate().toString()
                         local
                     } catch (_: Exception) {
                         // fallback: try prefix YYYY-MM-DD
@@ -761,7 +772,7 @@ class ForecastActivity : ComponentActivity() {
                     groups.getOrPut(parsedDate) { mutableListOf() }.add(f)
                 }
 
-                val todayLocal = LocalDate.now(ZoneId.systemDefault()).toString()
+                val todayLocal = generatedAt
                 for ((dateStr, list) in groups) {
                     if (dateStr == todayLocal) continue
                     // calcular métricas agregadas para el día
@@ -774,6 +785,7 @@ class ForecastActivity : ComponentActivity() {
                     var cloudCount = 0
                     var dayWindSum = 0.0
                     var dayWindCount = 0
+                    var dayWindMin = Double.POSITIVE_INFINITY
                     var dayWindMax = Double.NEGATIVE_INFINITY
                     var dayGustMax = Double.NEGATIVE_INFINITY
                     var dayPressureMin = Double.POSITIVE_INFINITY
@@ -796,10 +808,11 @@ class ForecastActivity : ComponentActivity() {
                     if (windValForDay.isFinite()) {
                         dayWindSum += windValForDay
                         dayWindCount++
+                        if (windValForDay < dayWindMin) dayWindMin = windValForDay
                         if (windValForDay > dayWindMax) dayWindMax = windValForDay
                     }
                     // intentar obtener ráfaga explícita si existe
-                    val gustVal = weatherObj?.optDouble("wind_gust", Double.NaN) ?: f.optDouble("wind_gust", Double.NaN)
+                    val gustVal = weatherObj?.optDouble("gust", Double.NaN) ?: f.optDouble("wind_gust", Double.NaN)
                     if (gustVal.isFinite() && gustVal > dayGustMax) dayGustMax = gustVal
                     // presión por hora (varios proveedores usan nombres distintos)
                     val presVal = weatherObj?.optDouble("pressure", Double.NaN)
@@ -899,10 +912,14 @@ class ForecastActivity : ComponentActivity() {
                                  windDirectionDeg = windDirVal,
                                  score = scoreVal,
                                  confidencePct = confPct,
-                                 precipitationProbability = if (popVal.isFinite()) popVal else null,
+                                 precipitationProbability = if (popVal.isFinite()) (popVal / 100.0).coerceIn(0.0, 1.0) else null,
+                                 weatherCode = weatherObj?.optInt("weather_code", -1)?.takeIf { it >= 0 },
+                                 windGust = weatherObj?.optDouble("gust", Double.NaN)?.takeIf { it.isFinite() },
                                  cloudCover = if (cloudVal.isFinite()) cloudVal else null,
                                  isDay = isDayVal,
-                                 condition = condition
+                                 condition = condition,
+                                 waterTempSource = f2.optJSONObject("activity")?.optString("waterTempSource"),
+                                 influences = parseInfluences(f2.optJSONObject("activity"))
                              )
                          )
                      } catch (_: Exception) {}
@@ -910,11 +927,6 @@ class ForecastActivity : ComponentActivity() {
                  // ordenar y limitar (mostrar hasta 24 horas)
                  try {
                      dailyHourlyEntries.sortBy { e -> try { parseIso(e.time).time } catch (_: Exception) { Long.MAX_VALUE } }
-                     if (dailyHourlyEntries.size > 24) {
-                         val keep = dailyHourlyEntries.take(24)
-                         dailyHourlyEntries.clear()
-                         dailyHourlyEntries.addAll(keep)
-                     }
                  } catch (_: Exception) {}
 
                  // Calcular bestWindows para este día a partir de dailyHourlyEntries
@@ -962,15 +974,15 @@ class ForecastActivity : ComponentActivity() {
                      humidityAvg = humidityAvg,
                      tempMin = dayTempMin,
                      tempMax = dayTempMax,
-                     windMin = dayWindAvg,
-                     windAvgMin = dayWindAvg,
+                     windMin = if (dayWindMin.isFinite()) dayWindMin else windAvgMin,
+                     windAvgMin = if (dayWindMin.isFinite()) dayWindMin else windAvgMin,
                      windAvgMax = dayWindMaxFinal,
                      windMax = dayGustMaxFinal,
                      pressureMin = dayPressureMinFinal,
                      pressureMax = dayPressureMaxFinal,
                      bestWindows = bestWindowsForDay,
-                     sunrise = astroInfo.sunrise,
-                     sunset = astroInfo.sunset,
+                     sunrise = list.firstOrNull()?.optJSONObject("astronomy")?.optString("sunrise") ?: astroInfo.sunrise,
+                     sunset = list.firstOrNull()?.optJSONObject("astronomy")?.optString("sunset") ?: astroInfo.sunset,
                      moonInfo = moonInfo,
                      hydroText = hydroText,
                      hourly = dailyHourlyEntries,
@@ -988,7 +1000,7 @@ class ForecastActivity : ComponentActivity() {
          val top = SimpleForecast(
               locationName = locationName,
               generatedAt = generatedAt,
-              dayAvg = score.overall.coerceIn(0, 100),
+              dayAvg = hourlyEntries.mapNotNull { it.score }.takeIf { it.isNotEmpty() }?.average()?.toInt() ?: score.overall.coerceIn(0, 100),
               bestHourTime = bestHourTime,
               bestHourScore = bestHourScore.coerceIn(0, 100),
               worstHourTime = worstHourTime,
@@ -1018,6 +1030,15 @@ class ForecastActivity : ComponentActivity() {
          return top
      }
 
+    private fun parseInfluences(activity: JSONObject?): List<FactorInfluence> {
+        val array = activity?.optJSONArray("influences") ?: return emptyList()
+        return (0 until array.length()).mapNotNull { i ->
+            val item = array.optJSONObject(i) ?: return@mapNotNull null
+            val value = item.optDouble("contribution", Double.NaN)
+            if (value.isFinite()) FactorInfluence(item.optString("key"), value) else null
+        }
+    }
+
     private fun parseIso(s: String): Date {
         if (s.isBlank()) return Date()
         try {
@@ -1035,7 +1056,7 @@ class ForecastActivity : ComponentActivity() {
                 }
                 try {
                     val ldt = LocalDateTime.parse(s, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                    val z = ldt.atZone(ZoneId.systemDefault()).toInstant()
+                    val z = ldt.atZone(forecastZone).toInstant()
                     return Date.from(z)
                 } catch (_: Exception) {
                 }
@@ -1043,14 +1064,14 @@ class ForecastActivity : ComponentActivity() {
                     // aceptar formato sin segundos: yyyy-MM-dd'T'HH:mm
                     val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
                     val ldt2 = LocalDateTime.parse(s, fmt)
-                    val z2 = ldt2.atZone(ZoneId.systemDefault()).toInstant()
+                    val z2 = ldt2.atZone(forecastZone).toInstant()
                     return Date.from(z2)
                 } catch (_: Exception) {
                 }
                 try {
                     // aceptar solo fecha yyyy-MM-dd
                     val ld = LocalDate.parse(s, DateTimeFormatter.ISO_LOCAL_DATE)
-                    val z3 = ld.atStartOfDay(ZoneId.systemDefault()).toInstant()
+                    val z3 = ld.atStartOfDay(forecastZone).toInstant()
                     return Date.from(z3)
                 } catch (_: Exception) {
                 }
@@ -1065,7 +1086,7 @@ class ForecastActivity : ComponentActivity() {
                 for (p in patterns) {
                     try {
                         val sdf = SimpleDateFormat(p, Locale.US)
-                        sdf.timeZone = TimeZone.getTimeZone("UTC")
+                        sdf.timeZone = if (p.contains("'Z'")) TimeZone.getTimeZone("UTC") else TimeZone.getTimeZone(forecastZone)
                         val parsed = sdf.parse(s)
                         if (parsed != null) return parsed
                     } catch (_: Exception) { /* try next */ }
@@ -1081,7 +1102,7 @@ class ForecastActivity : ComponentActivity() {
                 for (p in patterns) {
                     try {
                         val sdf = SimpleDateFormat(p, Locale.US)
-                        sdf.timeZone = TimeZone.getTimeZone("UTC")
+                        sdf.timeZone = if (p.contains("'Z'")) TimeZone.getTimeZone("UTC") else TimeZone.getTimeZone(forecastZone)
                         val parsed = sdf.parse(s)
                         if (parsed != null) return parsed
                     } catch (_: Exception) { /* try next */ }

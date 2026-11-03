@@ -26,6 +26,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".journal.JournalActivity" android:exported="false" />
+
         <!-- Declarar la actividad ForecastActivity -->
         <activity
             android:name="com.david.carpcast.ForecastActivity"

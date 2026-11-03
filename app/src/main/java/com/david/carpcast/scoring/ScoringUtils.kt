@@ -39,7 +39,7 @@ object ScoringUtils {
         var deltaPressure3hAvg: Double? = null
         if (prev3 != null && index - 1 >= 0) {
             val deltas = mutableListOf<Double>()
-            for (i in (index - 3)..index) {
+            for (i in (index - 2)..index) {
                 if (i - 1 < 0) continue
                 val cur = weatherData[i]
                 val prev = weatherData[i - 1]

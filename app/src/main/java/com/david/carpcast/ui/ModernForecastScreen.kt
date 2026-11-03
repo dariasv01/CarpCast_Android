@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -49,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -76,154 +78,70 @@ fun ModernForecastScreen(
     onBack: () -> Unit = {},
     onRefresh: () -> Unit = {},
     isLoadingState: MutableState<Boolean> = mutableStateOf(false),
-    selectedDay: SimpleForecast? = null
+    selectedDay: SimpleForecast? = null,
+    generatedAt: String = "",
+    speciesId: String = "carp",
+    cached: Boolean = false,
+    onRecord: () -> Unit = {}
 ) {
-    // Mantener selección local
-    val selectedDayState = remember { mutableStateOf<SimpleForecast?>(null) }
-
-    // Si el caller provee una selección externa, priorizarla
-    if (selectedDay != null && selectedDayState.value?.generatedAt != selectedDay.generatedAt) {
-        selectedDayState.value = selectedDay
+    val selectedDate = rememberSaveable { mutableStateOf(selectedDay?.generatedAt ?: forecast.generatedAt) }
+    val now = androidx.compose.runtime.produceState(System.currentTimeMillis()) {
+        while (true) { value = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
     }
-    // Cuando cambie el objeto forecast (por ejemplo tras un refresh), intentar mantener la selección
-    LaunchedEffect(key1 = forecast.generatedAt) {
-        Log.d("ModernForecastScreen", "Observed forecast.generatedAt=${forecast.generatedAt}")
-        val currentSel = selectedDayState.value
-        if (currentSel != null) {
-            val matched = forecast.otherDays.firstOrNull { it.generatedAt == currentSel.generatedAt }
-            if (matched != null) {
-                selectedDayState.value = matched
-                Log.d("ModernForecastScreen", "Restored selection to generatedAt=${matched.generatedAt}")
-            } else {
-                selectedDayState.value = null
-                Log.d("ModernForecastScreen", "Cleared selection because day not present in new forecast")
+    val days = (listOf(forecast) + forecast.otherDays).distinctBy { it.generatedAt }.sortedBy { it.generatedAt }
+    val selected = days.firstOrNull { it.generatedAt == selectedDate.value } ?: forecast
+    val windows = remember(selected.hourly, now.value) { ForecastWindows.upcoming(selected.hourly, now.value) }
+    val currentForecast = selected.copy(bestWindows = windows)
+
+    Scaffold(containerColor = AppNavy, topBar = {
+        TopAppBar(title = {
+            Column {
+                Text(com.david.carpcast.journal.speciesName(speciesId), style = MaterialTheme.typography.titleMedium)
+                Text(forecast.locationName, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-    }
-    val currentForecast = selectedDayState.value ?: forecast
-
-    // Observe loading state for debugging and add UI-side safety to avoid stuck spinner
-    LaunchedEffect(key1 = isLoadingState.value) {
-        Log.d("ModernForecastScreen", "isLoadingState changed -> ${isLoadingState.value}")
-        if (isLoadingState.value) {
-            // If Activity fails to clear loading, auto-clear after 18s to keep UI responsive
-            try {
-                kotlinx.coroutines.delay(18_000)
-                if (isLoadingState.value) {
-                    isLoadingState.value = false
-                    Log.d("ModernForecastScreen", "Auto-cleared isLoadingState after 18s")
-                }
-            } catch (_: Exception) { }
-        }
-    }
-
-    Surface(modifier = Modifier.fillMaxSize(), color = AppNavy) {
-        Scaffold(topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = forecast.locationName,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color(0xFFB8D3FF),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(id = com.david.carpcast.R.string.back_desc), tint = Color(0xFFB8D3FF))
+        }, navigationIcon = {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.david.carpcast.R.string.back_desc)) }
+        }, actions = {
+            IconButton(onClick = onRefresh, enabled = !isLoadingState.value) { Icon(Icons.Default.Refresh, contentDescription = stringResource(com.david.carpcast.R.string.refresh_desc)) }
+        })
+    }) { padding ->
+        LazyColumn(Modifier.testTag("forecast-list").fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (isLoadingState.value) item { androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            item { ForecastOrigin(generatedAt, cached) }
+            item { HeroCard(currentForecast) }
+            item { WeatherDayCard(currentForecast) }
+            item { PrimeWindowCompact(currentForecast) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    androidx.compose.material3.Button(onClick = onRecord, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), enabled = !isLoadingState.value) {
+                        Text(stringResource(com.david.carpcast.R.string.field_start_here))
                     }
-                },
-                actions = {
-                    IconButton(onClick = { selectedDayState.value = null; onRefresh() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(id = com.david.carpcast.R.string.refresh_desc), tint = Color(0xFFB8D3FF))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
-        }, containerColor = Color.Transparent) { innerPadding ->
-
-            Box(modifier = Modifier
-                .padding(innerPadding)
-                .padding(16.dp)) {
-                LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    item { HeroCard(forecast = currentForecast) }
-                    item { PrimeWindowCompact(forecast = currentForecast) }
-                    item {
-                        NextDaysRow(otherDays = forecast.otherDays, highlightedGeneratedAt = selectedDayState.value?.generatedAt, onSelectDay = { day ->
-                            Log.d("ModernForecastScreen", "User selected day: ${day.generatedAt}")
-                            selectedDayState.value = day
-                        })
-                    }
-                    // Insert Daily Activity Curve between NextDaysRow and HourlyCollapsible
-                    item {
-                        val primaryRange = currentForecast.bestWindows.firstOrNull()?.first ?: computeBestWindowsFromHourly(currentForecast.hourly).firstOrNull()?.first
-                        DailyActivityCurve(forecast = currentForecast, primeRange = primaryRange)
-                    }
-                    item {
-                        val primaryRange = currentForecast.bestWindows.firstOrNull()?.first ?: computeBestWindowsFromHourly(currentForecast.hourly).firstOrNull()?.first
-                        HourlyCollapsible(forecast = currentForecast, primeRange = primaryRange)
-                    }
-                    item { EnvironmentalFactorsCardCompact(forecast = currentForecast) }
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
-                }
-
-                // Overlay loading spinner centered (renders above LazyColumn content)
-                if (isLoadingState.value) {
-                    Box(modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp), contentAlignment = Alignment.TopCenter) {
-                        androidx.compose.material3.CircularProgressIndicator(color = Color(0xFF7FC1FF))
-                    }
-                    // small debug stop button top-right to force clear the loading state if it gets stuck
-                    Box(modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp), contentAlignment = Alignment.TopEnd) {
-                        IconButton(onClick = {
-                            isLoadingState.value = false
-                            Log.d("ModernForecastScreen", "User forced clear of isLoadingState via debug button")
-                        }) {
-                            Icon(Icons.Filled.Close, contentDescription = stringResource(id = com.david.carpcast.R.string.stop_loading), tint = Color(0xFFB8D3FF))
-                        }
-                    }
+                    Text(stringResource(com.david.carpcast.R.string.field_start_today), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            item { NextDaysRow(days, selected.generatedAt) { selectedDate.value = it.generatedAt } }
+            item { DailyActivityCurve(currentForecast, windows.firstOrNull()?.first) }
+            if (windows.isNotEmpty()) item { ForecastExplanation(currentForecast) }
+            item { HourlyCollapsible(currentForecast, windows.firstOrNull()?.first) }
+            item { EnvironmentalFactorsCardCompact(currentForecast) }
+            item { ForecastDataCard(currentForecast) }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
 
 @Composable
 private fun HeroCard(forecast: SimpleForecast) {
-    // gradient derived from the activity score (tema de la actividad)
-    val gradient = activityGradientForScore(forecast.dayAvg)
-    val accent = activityAccentColor(forecast.dayAvg)
-
-    Card(
-        shape = AppCardShape,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = AppCardElevation(default = 8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(8.dp, AppCardShape)
-    ) {
-        Box(modifier = Modifier
-            .background(gradient, RoundedCornerShape(16.dp))
-            .padding(18.dp)) {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = stringResource(id = com.david.carpcast.R.string.fishing_activity_title), style = MaterialTheme.typography.labelMedium, color = Color(0xFFB8D3FF))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    Text(text = forecast.dayAvg.toString(), fontSize = 52.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                Text(text = activityLabelSimple(forecast.dayAvg), style = MaterialTheme.typography.titleSmall, color = accent)
-                // Texto de tendencia dinámico basado en las próximas horas del mismo día
-                val (trendText, trendColor) = activityTrendLocalized(forecast)
-                Text(text = trendText, style = MaterialTheme.typography.bodySmall, color = trendColor)
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = stringResource(id = com.david.carpcast.R.string.best_time_label, forecast.bestWindows.firstOrNull()?.first ?: forecast.bestHourTime), style = MaterialTheme.typography.bodySmall, color = Color(0xFFBFD9FF))
-                    Text(text = stringResource(id = com.david.carpcast.R.string.confidence_compact, forecast.avgConfidencePct), style = MaterialTheme.typography.bodySmall, color = Color(0xFFBFD9FF))
-                }
+    Card(shape = AppCardShape, colors = CardDefaults.cardColors(containerColor = Color.Transparent), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().background(activityGradientForScore(forecast.dayAvg)).padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(stringResource(com.david.carpcast.R.string.field_daily_index), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(forecast.dayAvg.toString(), fontSize = 58.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("/ 100", modifier = Modifier.padding(bottom = 10.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Text(activityLabelSimple(forecast.dayAvg), style = MaterialTheme.typography.titleMedium, color = activityAccentColor(forecast.dayAvg))
+            Text(formatCompactDate(forecast.generatedAt), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -244,18 +162,22 @@ private fun activityLabelSimple(score: Int): String {
 private fun PrimeWindowCompact(forecast: SimpleForecast) {
     // Use provided bestWindows if available, otherwise compute from hourly entries
     val provided = forecast.bestWindows
-    val windows = if (provided.isNotEmpty()) provided else computeBestWindowsFromHourly(forecast.hourly)
-    if (windows.isEmpty()) return
+    val windows = provided
+    if (windows.isEmpty()) {
+        FieldCard { Text(stringResource(com.david.carpcast.R.string.field_no_future_window), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        return
+    }
     val primary = windows.first()
     val others = windows.drop(1).take(2)
 
     Card(shape = AppCardShape, modifier = Modifier.fillMaxWidth(), elevation = AppCardElevation()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(text = stringResource(id = com.david.carpcast.R.string.fire_emoji) + " " + stringResource(id = com.david.carpcast.R.string.prime_window_label_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(text = stringResource(com.david.carpcast.R.string.field_next_window), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(text = primary.second.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
             Text(text = primary.first, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            WindowWeather(forecast, primary.first)
             ThinProgress(value = (primary.second.coerceIn(0,100) / 100f), prominent = true, color = activityAccentColor(primary.second))
 
             if (others.isNotEmpty()) {
@@ -270,54 +192,11 @@ private fun PrimeWindowCompact(forecast: SimpleForecast) {
                                 Text(o.second.toString(), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                             }
                         }
+                        WindowWeather(forecast, o.first)
                     }
                 }
             }
         }
-    }
-}
-
-// Compute best windows from hourly scores as a fallback when bestWindows is not provided
-private fun computeBestWindowsFromHourly(hourly: List<HourlyEntry>, windowHours: Int = 2, maxResults: Int = 3): List<Pair<String, Int>> {
-    if (hourly.isEmpty()) return emptyList()
-    data class Candidate(val start: LocalTime, val score: Double)
-
-    val fmt = DateTimeFormatter.ofPattern("HH:mm")
-    val candidates = mutableListOf<Candidate>()
-
-    // Build an ordered list of (time, score)
-    val timesAndScores = hourly.mapNotNull { h ->
-        val t = try { parseToLocalTime(h.time) } catch (_: Exception) { null }
-        val s = h.score
-        if (t != null && s != null) t to s.toDouble() else null
-    }.sortedBy { it.first }
-
-    if (timesAndScores.isEmpty()) return emptyList()
-
-    for (i in timesAndScores.indices) {
-        val start = timesAndScores[i].first
-        // collect scores for the next windowHours hours inclusive of start
-        val windowScores = mutableListOf<Double>()
-        var j = i
-        while (j < timesAndScores.size) {
-            val cur = timesAndScores[j].first
-            val hoursBetween = java.time.Duration.between(start, cur).toHours()
-            val adjustedHours = if (hoursBetween < 0) (24 + hoursBetween) else hoursBetween
-            if (adjustedHours >= windowHours) break
-            windowScores.add(timesAndScores[j].second)
-            j++
-        }
-        if (windowScores.isNotEmpty()) {
-            val avg = windowScores.average()
-            candidates.add(Candidate(start, avg))
-        }
-    }
-
-    val top = candidates.sortedByDescending { it.score }.distinctBy { it.start }.take(maxResults)
-    return top.map { c ->
-        val end = c.start.plusHours(windowHours.toLong())
-        val label = "${c.start.format(fmt)} – ${end.format(fmt)}"
-        label to c.score.toInt()
     }
 }
 
@@ -332,7 +211,7 @@ private fun NextDaysRow(otherDays: List<SimpleForecast>, highlightedGeneratedAt:
                 val selected = highlightedGeneratedAt != null && d.generatedAt == highlightedGeneratedAt
                 val accent = activityAccentColor(d.dayAvg)
                 val selBg = if (selected) accent.copy(alpha = 0.12f) else Color(0xFF071426).copy(alpha = 0.6f)
-                Card(shape = AppCardShape, modifier = Modifier.width(120.dp).height(96.dp).clickable { onSelectDay(d) }, elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 8.dp else 4.dp)) {
+                Card(shape = AppCardShape, modifier = Modifier.width(120.dp).height(108.dp).clickable { onSelectDay(d) }, elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 8.dp else 4.dp)) {
                     Column(modifier = Modifier
                         .background(selBg)
                         .padding(10.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -355,7 +234,7 @@ private fun formatCompactDate(d: String): String {
 
 @Composable
 private fun HourlyCollapsible(forecast: SimpleForecast, primeRange: String?) {
-    val expanded = rememberSaveable { mutableStateOf(true) }
+    val expanded = rememberSaveable { mutableStateOf(false) }
     Card(shape = AppCardShape, modifier = Modifier.fillMaxWidth(), elevation = AppCardElevation()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -388,12 +267,16 @@ private fun getTopScoresHours(hourly: List<HourlyEntry>, topDistinct: Int = 3): 
 
 @Composable
 private fun HourlyRow(h: HourlyEntry, prime: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(text = formatTimeOnly(h.time), style = MaterialTheme.typography.bodySmall)
-        ThinProgress(value = ((h.score ?: 0).coerceIn(0,100) / 100f), modifier = Modifier.width(180.dp), prominent = prime)
-        Column(horizontalAlignment = Alignment.End) {
-            Text(text = stringResource(id = if(prime){com.david.carpcast.R.string.fire_score}else{com.david.carpcast.R.string.score}, (h.score ?: 0)), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            Text(text = h.temperature?.let { String.format(Locale.getDefault(), "%.0f %s", it, stringResource(id = com.david.carpcast.R.string.unit_celsius)) } ?: "--", style = MaterialTheme.typography.labelSmall)
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(formatTimeOnly(h.time), style = MaterialTheme.typography.titleSmall)
+            WeatherCondition(h)
+            Text(h.temperature?.let { String.format(Locale.getDefault(), "%.0f °C", it) } ?: "—", fontWeight = FontWeight.SemiBold)
+        }
+        WeatherNumbers(listOf(h))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ThinProgress(value = ((h.score ?: 0).coerceIn(0,100) / 100f), modifier = Modifier.weight(1f), prominent = prime)
+            Text(stringResource(if (prime) com.david.carpcast.R.string.fire_score else com.david.carpcast.R.string.score, h.score ?: 0), style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -470,12 +353,7 @@ private fun activityTrendLocalized(forecast: SimpleForecast): Pair<String, Color
 private fun parseToLocalTime(dateStr: String?): LocalTime? {
     if (dateStr.isNullOrBlank()) return null
     try {
-        val inst = try { Instant.parse(dateStr) } catch (_: Exception) { null }
-        if (inst != null) return LocalDateTime.ofInstant(inst, ZoneId.systemDefault()).toLocalTime()
-    } catch (_: Exception) {}
-    try {
-        val odt = try { OffsetDateTime.parse(dateStr) } catch (_: Exception) { null }
-        if (odt != null) return odt.atZoneSameInstant(ZoneId.systemDefault()).toLocalTime()
+        return OffsetDateTime.parse(dateStr).toLocalTime()
     } catch (_: Exception) {}
     try {
         val ldt = try { LocalDateTime.parse(dateStr) } catch (_: Exception) { null }
@@ -504,11 +382,7 @@ private fun isTimeInRange(hourTime: LocalTime?, range: String?): Boolean {
 private fun formatTimeOnly(dateStr: String?): String {
     if (dateStr.isNullOrBlank()) return "--:--"
     try {
-        val inst = try { Instant.parse(dateStr) } catch (_: Exception) { null }
-        if (inst != null) {
-            val ldt = LocalDateTime.ofInstant(inst, ZoneId.systemDefault())
-            return ldt.toLocalTime().toString().substring(0,5)
-        }
+        return OffsetDateTime.parse(dateStr).toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm"))
     } catch (_: Exception) {}
     val regex = Regex("(\\d{1,2}:\\d{2})(?::\\d{2})?")
     val match = regex.find(dateStr)
@@ -550,11 +424,9 @@ private fun DailyActivityCurve(forecast: SimpleForecast, primeRange: String?) {
     val n = hoursData.size
     if (n == 0) return
 
-    // Determine min/max for chart scale with a small padding
-    val dataMin = hoursData.minOrNull() ?: 0f
-    val dataMax = hoursData.maxOrNull() ?: 100f
-    val vMin = (dataMin - 6f).coerceAtLeast(0f)
-    val vMax = (dataMax + 6f).coerceAtMost(100f)
+    // Fixed scale keeps daily and cross-day variations visually comparable.
+    val vMin = 0f
+    val vMax = 100f
 
     // Prime hours set: compute from primeRange string
     val primeHours = mutableSetOf<Int>()
@@ -565,8 +437,8 @@ private fun DailyActivityCurve(forecast: SimpleForecast, primeRange: String?) {
         if (start != null && end != null) {
             var h = start.hour
             while (true) {
-                primeHours.add(h % 24)
                 if (h % 24 == end.hour % 24) break
+                primeHours.add(h % 24)
                 h = (h + 1) % 24
                 if (h == start.hour) break
             }
@@ -580,7 +452,7 @@ private fun DailyActivityCurve(forecast: SimpleForecast, primeRange: String?) {
 
     Card(shape = AppCardShape, modifier = Modifier.fillMaxWidth(), elevation = AppCardElevation()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = "Daily Activity", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(text = stringResource(com.david.carpcast.R.string.field_daily_curve), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
 
             Box(modifier = Modifier
                 .fillMaxWidth()
@@ -598,10 +470,15 @@ private fun DailyActivityCurve(forecast: SimpleForecast, primeRange: String?) {
                 }
             ) {
                 Canvas(modifier = Modifier.matchParentSize()) {
-                    val padX = 18f
-                    val padY = 12f
+                    val padX = 18.dp.toPx()
+                    val padY = 12.dp.toPx()
                     val w = size.width - padX * 2f
                     val h = size.height - padY * 2f
+
+                    for (level in listOf(0f, 50f, 100f)) {
+                        val y = padY + (1f - level / 100f) * h
+                        drawLine(Color.White.copy(alpha = 0.08f), Offset(padX, y), Offset(padX + w, y))
+                    }
 
                     // compute points
                     val points = List(n) { i ->
@@ -674,11 +551,17 @@ private fun DailyActivityCurve(forecast: SimpleForecast, primeRange: String?) {
                         .padding(6.dp)) {
                         Column {
                             Text(text = hourLabel, style = MaterialTheme.typography.labelSmall, color = Color(0xFFBFD9FF))
-                            Text(text = "Score $score", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                            Text(text = stringResource(com.david.carpcast.R.string.field_chart_score, score), style = MaterialTheme.typography.bodySmall, color = Color.White)
                         }
                     }
                 }
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf("00:00", "06:00", "12:00", "18:00", "23:00").forEach { hour ->
+                    Text(hour, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text(stringResource(com.david.carpcast.R.string.field_chart_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

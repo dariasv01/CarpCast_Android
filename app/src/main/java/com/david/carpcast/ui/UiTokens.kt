@@ -16,17 +16,17 @@ import androidx.compose.ui.unit.dp
 // Shared UI tokens and small components used across screens
 
 // Colors
-val AppNavy = Color(0xFF031027)
+val AppNavy = Color(0xFF071522)
 val AppAccentBlue = Color(0xFF7FC1FF)
 val AppAccentBlueStrong = Color(0xFF4DA8FF)
 val AppAccentGreen = Color(0xFF9FD8B8)
 val AppAccentRed = Color(0xFFFF9AA2)
 
 // Cards
-val AppCardCorner: Dp = 12.dp
+val AppCardCorner: Dp = 20.dp
 val AppCardShape = RoundedCornerShape(AppCardCorner)
 @Composable
-fun AppCardElevation(default: Dp = 6.dp) = CardDefaults.cardElevation(defaultElevation = default)
+fun AppCardElevation(default: Dp = 0.dp) = CardDefaults.cardElevation(defaultElevation = default)
 
 // Activity theme helpers (kept small and deterministic)
 fun activityAccentColor(score: Int): Color {

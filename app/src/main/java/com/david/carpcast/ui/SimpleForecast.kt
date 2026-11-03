@@ -113,5 +113,9 @@ data class HourlyEntry(
     val cloudCover: Double? = null, // 0..100
     val isDay: Boolean? = null,
     val condition: String? = null, // "clear" | "cloudy" | "rain" | "snow" | etc.
-    val windDirectionDeg: Double? = null // grados 0..360
+    val windDirectionDeg: Double? = null, // grados 0..360
+    val waterTempSource: String? = null,
+    val weatherCode: Int? = null,
+    val windGust: Double? = null,
+    val influences: List<com.david.carpcast.scoring.FactorInfluence> = emptyList()
 )
