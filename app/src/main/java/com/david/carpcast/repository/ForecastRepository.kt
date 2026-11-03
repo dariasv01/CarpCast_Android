@@ -7,6 +7,8 @@ import com.david.carpcast.astronomy.AstronomyResult
 import com.david.carpcast.network.*
 import com.david.carpcast.hydrology.HydrologyClientFactory
 import com.david.carpcast.util.TimeUtils
+import kotlinx.coroutines.CancellationException
+import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -86,17 +88,38 @@ class ForecastRepository {
 
     @RequiresApi(Build.VERSION_CODES.O)
     @Throws(IOException::class)
-    suspend fun buildForecastJsonReal(lat: Double, lon: Double, species: String): JSONObject {
-        val resp = getWeather(lat, lon)
+    suspend fun buildForecastJsonReal(lat: Double, lon: Double, species: String, historicalApi: JSONObject? = null, historicalDate: java.time.LocalDate? = null): JSONObject {
+        val selectedSpecies = SpeciesSelection.fromId(species)
+        val selectedMode = SpeciesSelection.modeFor(selectedSpecies)
+        require((historicalApi == null) == (historicalDate == null))
+        val api = if (historicalApi != null) JSONObject(historicalApi.toString()) else {
+            val resp = getWeather(lat, lon)
+            if (!resp.isSuccessful) throw IOException("Weather API error: ${resp.code()}")
+            JSONObject(resp.body()?.string() ?: throw IOException("Empty body from weather API"))
+        }
+        val forecastZone = ZoneId.of(api.getString("timezone"))
+        // API local times are normalized once, at the boundary, with date-specific offsets.
+        for ((section, keys) in listOf("hourly" to listOf("time"), "daily" to listOf("sunrise", "sunset"))) {
+            val obj = api.optJSONObject(section) ?: continue
+            for (key in keys) {
+                val arr = obj.optJSONArray(key) ?: continue
+                for (i in 0 until arr.length()) if (!arr.isNull(i)) arr.put(i, TimeUtils.withOffset(arr.getString(i), forecastZone))
+            }
+        }
+        api.optJSONObject("current_weather")?.let { current ->
+            current.put("time", TimeUtils.withOffset(current.getString("time"), forecastZone))
+        }
 
-        val dateIso = Instant.now().toString().substring(0, 10)
+        val dateIso = (historicalDate ?: java.time.LocalDate.now(forecastZone)).toString()
 
         val respAstroResult = getAstronomyResult(dateIso, lat, lon)
 
         // Ahora obtenemos la hidrología desde HydrologyClient
         val hydroResult = try {
-            hydrologyClient.getHydrologyByLocation(lat, lon)
-        } catch (t: Throwable) {
+            if (historicalDate != null) HydrologyFetchResult.Failure(HydrologyFetchResult.FailureType.UNKNOWN, "Historical hydrology unavailable")
+            else hydrologyClient.getHydrologyByLocation(lat, lon)
+        } catch (t: Exception) {
+            if (t is CancellationException) throw t
             HydrologyFetchResult.Failure(HydrologyFetchResult.FailureType.UNKNOWN, t.message)
         }
 
@@ -105,35 +128,28 @@ class ForecastRepository {
             else -> emptyList()
         }
 
-        if (!resp.isSuccessful) throw IOException("Weather API error: ${resp.code()}")
-
-        val body = resp.body()?.string() ?: throw IOException("Empty body from weather API")
-        val api = JSONObject(body)
 
         // Estructura de salida
         val root = JSONObject()
         root.put("lat", lat)
         root.put("lon", lon)
-        root.put("species", species)
+        root.put("species", selectedSpecies.name)
+        root.put("mode", selectedMode.name)
+        root.put("timezone", forecastZone.id)
 
         // current_weather (contiene time, temperature, windspeed, winddirection)
         val current = JSONObject()
         val currentWeather = api.optJSONObject("current_weather")
-        val currentTimeIso = currentWeather?.optString("time") ?: api.optJSONObject("hourly")?.optJSONArray("time")?.optString(0) ?: ""
+        val currentTimeIso = currentWeather?.optString("time") ?: historicalDate?.atTime(12, 0)?.atZone(forecastZone)?.toOffsetDateTime()?.toString() ?: Instant.now().toString()
         current.put("time", currentTimeIso)
 
         // Extraer arrays horarios
         val hourly = api.optJSONObject("hourly")
         val times = hourly?.optJSONArray("time")
-        fun indexOfTime(t: String?): Int {
-            if (t == null || times == null) return 0
-            for (i in 0 until times.length()) {
-                if (t == times.optString(i)) return i
-            }
-            return 0
-        }
-
-        val idx = indexOfTime(currentTimeIso)
+        val nowMs = historicalDate?.atTime(12, 0)?.atZone(forecastZone)?.toInstant()?.toEpochMilli() ?: System.currentTimeMillis()
+        val idx = (0 until (times?.length() ?: 0)).minByOrNull {
+            abs((parseTimeMs(times?.optString(it)) ?: Long.MIN_VALUE / 2) - nowMs)
+        } ?: throw IOException("Weather API returned no hourly data")
 
         // Temperatura
         val tArr = hourly?.optJSONArray("temperature_2m")
@@ -148,7 +164,7 @@ class ForecastRepository {
         val wind = hourly?.optJSONArray("wind_speed_10m")?.optDouble(idx, Double.NaN) ?: currentWeather?.optDouble("windspeed", Double.NaN) ?: Double.NaN
         current.put("wind_speed", if (wind.isNaN()) JSONObject.NULL else wind)
 
-        val gust = hourly?.optJSONArray("windgusts_10m")?.optDouble(idx, Double.NaN) ?: Double.NaN
+        val gust = hourly?.optJSONArray("wind_gusts_10m")?.optDouble(idx, Double.NaN) ?: Double.NaN
         if (!gust.isNaN()) current.put("gust", gust)
 
         // Precipitación y probabilidad
@@ -159,7 +175,7 @@ class ForecastRepository {
         if (!pop.isNaN()) current.put("pop", pop)
 
         // Presión (pressure_msl)
-        val pressure = hourly?.optJSONArray("surface_pressure")?.optDouble(idx, Double.NaN) ?: Double.NaN
+        val pressure = hourly?.optJSONArray("pressure_msl")?.optDouble(idx, Double.NaN) ?: Double.NaN
         current.put("pressure", if (pressure.isNaN()) JSONObject.NULL else pressure)
 
         // Nubosidad / UV / SW radiation
@@ -184,17 +200,10 @@ class ForecastRepository {
         val sunsetArr = daily?.optJSONArray("sunset")
         val sunrise = sunriseArr?.optString(0)
         val sunset = sunsetArr?.optString(0)
-        val isDay = if (currentTimeIso.isNotBlank() && sunrise != null && sunset != null) {
-            try {
-                val nowMillis = parseTimeMs(currentTimeIso) ?: Instant.now().toEpochMilli()
-                val sr = parseTimeMs(sunrise) ?: nowMillis
-                val ss = parseTimeMs(sunset) ?: nowMillis
-                nowMillis in (sr..ss)
-            } catch (_: Exception) {
-                true
-            }
-        } else true
-        current.put("is_day", isDay)
+        val isDay = currentWeather?.optInt("is_day", -1)?.takeIf { it >= 0 }?.let { it == 1 }
+            ?: hourly?.optJSONArray("is_day")?.optInt(idx, -1)?.takeIf { it >= 0 }?.let { it == 1 }
+
+        current.put("is_day", isDay ?: JSONObject.NULL)
 
         root.put("current", current)
 
@@ -215,6 +224,8 @@ class ForecastRepository {
                 astro.put("astro_source", "daily_fallback")
             }
         }
+        sunrise?.let { astro.put("sunrise", it) }
+        sunset?.let { astro.put("sunset", it) }
         root.put("astro", astro)
 
         // Hidrología: incluir lista de muestras (puede estar vacía)
@@ -250,7 +261,7 @@ class ForecastRepository {
             if (hourly != null && times != null) {
                 val tempArr = hourly.optJSONArray("temperature_2m")
                 val rhArr = hourly.optJSONArray("relative_humidity_2m")
-                val dewPointArr = hourly.optJSONArray("dewpoint_2m")
+                val dewPointArr = hourly.optJSONArray("dew_point_2m")
                 val precipArr = hourly.optJSONArray("precipitation")
                 val popArr = hourly.optJSONArray("precipitation_probability")
                 val cloudArr = hourly.optJSONArray("cloud_cover")
@@ -260,9 +271,9 @@ class ForecastRepository {
                 val wsArr = hourly.optJSONArray("wind_speed_10m")
                 val wdArr = hourly.optJSONArray("wind_direction_10m")
                 val gustArr = hourly.optJSONArray("wind_gusts_10m")
-                val presArr = hourly.optJSONArray("surface_pressure")
+                val presArr = hourly.optJSONArray("pressure_msl")
                 val swArr = hourly.optJSONArray("shortwave_radiation")
-                val isDayArr = hourly.optJSONArray("id_day")
+                val isDayArr = hourly.optJSONArray("is_day")
                 val visibilityArr = hourly.optJSONArray("visibility")
                 val uviArr = hourly.optJSONArray("uv_index")
 
@@ -276,7 +287,7 @@ class ForecastRepository {
                     val wdV = wdArr?.optDouble(i, Double.NaN) ?: Double.NaN
                     val gustV = gustArr?.optDouble(i, Double.NaN) ?: Double.NaN
                     val precipV = precipArr?.optDouble(i, Double.NaN) ?: Double.NaN
-                    val isDayV = isDayArr?.optBoolean(i) ?: false
+                    val isDayV = isDayArr?.optInt(i, -1)?.takeIf { it >= 0 }?.let { it == 1 }
                     val visibilityV = visibilityArr?.optDouble(i, Double.NaN) ?: Double.NaN
                     val popV = popArr?.optDouble(i, Double.NaN) ?: Double.NaN
                     val cloudV = cloudArr?.optDouble(i, Double.NaN) ?: Double.NaN
@@ -311,7 +322,7 @@ class ForecastRepository {
             }
 
             // Anchor (momento de referencia) similar al servidor
-            val anchorNowMs = Instant.now().toEpochMilli()
+            val anchorNowMs = nowMs
 
             // Construir HydroData a partir de muestras
             val hydroDataForScoring = HydroData(
@@ -321,7 +332,13 @@ class ForecastRepository {
             )
 
             // Estimar serie de temperaturas de agua
-            val estimatedWaterTemps = ActivityScoring.estimateWaterTempSeries(weatherHours, hydroDataForScoring.waterTemp)
+            val measuredWater = hydroSamples.filter {
+                it.parameter?.contains("temp", true) == true && it.value?.isFinite() == true &&
+                    it.unit?.lowercase(Locale.ROOT)?.replace(" ", "") in setOf("degc", "°c", "c", "celsius") &&
+                    it.time?.let { time -> runCatching { OffsetDateTime.parse(time) }.isSuccess } == true &&
+                    parseTimeMs(it.time)?.let { time -> abs(anchorNowMs - time) <= 2 * 3600_000L } == true
+            }.maxByOrNull { parseTimeMs(it.time) ?: 0L }
+            val estimatedWaterTemps = ActivityScoring.estimateWaterTempSeries(weatherHours)
 
             // Calcular scoring por hora
             val forecastsArr = JSONArray()
@@ -330,67 +347,66 @@ class ForecastRepository {
 
             for (i in weatherHours.indices) {
                 val weatherPoint = weatherHours[i]
-                val derived = computeDerivedFeatures(weatherHours, i)
+                val derived = ScoringUtils.computeDerivedFeatures(weatherHours, i).copy(
+                    deltaWaterTemp1h = if (i > 0) estimatedWaterTemps[i] - estimatedWaterTemps[i - 1] else null
+                )
 
                 // decidir waterTemp para scoring: ±2h rule
                 val pointMs = parseTimeMs(weatherPoint.time) ?: anchorNowMs
                 val horizonAbsHours = abs(pointMs - anchorNowMs).toDouble() / (60.0 * 60.0 * 1000.0)
-                val waterTempForScoring = if (horizonAbsHours <= 2.0 && hydroDataForScoring.waterTemp != null) {
-                    hydroDataForScoring.waterTemp
+                val waterTempForScoring = if (horizonAbsHours <= 2.0 && measuredWater != null &&
+                    abs(pointMs - (parseTimeMs(measuredWater.time) ?: 0L)) <= 2 * 3600_000L) {
+                    measuredWater.value
                 } else {
                     estimatedWaterTemps.getOrNull(i)
                 }
 
+                val waterSource = if (measuredWater != null && waterTempForScoring == measuredWater.value &&
+                    horizonAbsHours <= 2.0 && abs(pointMs - (parseTimeMs(measuredWater.time) ?: 0L)) <= 2 * 3600_000L)
+                    WaterTemperatureSource.MEASURED else WaterTemperatureSource.ESTIMATED
+                val dateIndex = (0 until (daily?.optJSONArray("time")?.length() ?: 0)).firstOrNull {
+                    daily?.optJSONArray("time")?.optString(it) == weatherPoint.time.take(10)
+                }
+                val pointAstro = JSONObject(astro.toString()).apply {
+                    remove("sunrise")
+                    remove("sunset")
+                    if (dateIndex != null) {
+                        put("sunrise", sunriseArr?.optString(dateIndex)?.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+                        put("sunset", sunsetArr?.optString(dateIndex)?.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+                    }
+                }
                 val ctx = ScoringContextMs(
                     nowMs = pointMs,
                     anchorNowMs = anchorNowMs,
                     lat = lat,
-                    derived = derived,
-                    waterTemp = waterTempForScoring
+                    derived = if (waterSource == WaterTemperatureSource.MEASURED) derived.copy(deltaWaterTemp1h = null) else derived,
+                    waterTemp = waterTempForScoring,
+                    waterTempSource = waterSource,
+                    dataCoverage = (listOf("temperature_2m", "pressure_msl", "relative_humidity_2m",
+                        "wind_speed_10m", "precipitation", "cloud_cover").count {
+                            hourly?.optJSONArray(it)?.optDouble(i, Double.NaN)?.isFinite() == true
+                        } + (if (weatherPoint.isDay != null) 1 else 0) +
+                        (if (derived.deltaPressure3hAvg != null) 1 else 0) +
+                        (if (waterTempForScoring?.isFinite() == true) 1 else 0) +
+                        (if (waterSource == WaterTemperatureSource.MEASURED) 1 else 0)) / 10.0
                 )
 
                 val args = ActivityCalculateArgs(
                     weather = weatherPoint,
                     astro = AstroData(
-                        sunrise = astro.optString("sunrise", Instant.now().toString()),
-                        sunset = astro.optString("sunset", Instant.now().toString()),
+                        sunrise = pointAstro.optString("sunrise", ""),
+                        sunset = pointAstro.optString("sunset", ""),
                         moonIllumination = if (astro.has("moon_illumination")) astro.optDouble("moon_illumination") else null,
                         moonPhase = if (astro.has("moon_phase")) astro.optDouble("moon_phase") else 0.5
                     ),
                     hydro = hydroDataForScoring,
                     marine = null,
-                    mode = FishingMode.carpfishing,
-                    // mapear el species (String) recibido en la función a la enum local
-                    species = when (species.lowercase(Locale.getDefault())) {
-                        "carp", "carpa" -> FishSpecies.carp
-                        "barbel", "barbo" -> FishSpecies.barbel
-                        "bass", "blackbass" -> FishSpecies.bass
-                        "pike", "lucio" -> FishSpecies.pike
-                        "catfish", "siluro" -> FishSpecies.catfish
-                        else -> FishSpecies.general
-                    },
+                    mode = selectedMode,
+                    species = selectedSpecies,
                     context = ctx
                 )
 
-                val activityScore = try {
-                    ActivityScoring.calculate(args)
-                } catch (e: Exception) {
-                    // fallback mínimo
-                    ActivityScore(
-                        overall = 50,
-                        factors = ActivityScore.Factors(50, 50, weatherPoint.pressure, weatherPoint.windSpeed, 50.0, 0),
-                        reasons = listOf("Scoring failed"),
-                        bestWindows = emptyList(),
-                        recommendation = "N/A",
-                        confidence = 0.65,
-                        breakdown = ScoreBreakdown(
-                            subscores = ScoreBreakdown.Subscores(50,50,null,null),
-                            meteoModel = null,
-                            weightsUsed = ScoreBreakdown.WeightsUsed(0.0,0.0,0.0,0.0),
-                            bioMultipliers = ScoreBreakdown.BioMultipliers(1.0,1.0,1.0,1.0)
-                        )
-                    )
-                }
+                val activityScore = ActivityScoring.calculate(args)
 
                 // Añadir entry de depuración
                 try {
@@ -459,7 +475,10 @@ class ForecastRepository {
                  fObj.put("time", weatherPoint.time)
                  fObj.put("weather", JSONObject().apply {
                      put("time", weatherPoint.time)
+                     put("weather_code", hourly?.optJSONArray("weather_code")?.optInt(i, -1)?.takeIf { it >= 0 } ?: JSONObject.NULL)
                      put("temperature", weatherPoint.temperature)
+                     put("is_day", weatherPoint.isDay ?: JSONObject.NULL)
+                     put("wind_direction", weatherPoint.windDirection ?: JSONObject.NULL)
                      put("dew_point", weatherPoint.dewPoint ?: JSONObject.NULL)
                      put("humidity", weatherPoint.humidity)
                      put("wind_speed", weatherPoint.windSpeed)
@@ -471,12 +490,20 @@ class ForecastRepository {
                      put("shortwave_radiation", weatherPoint.shortwaveRadiation ?: JSONObject.NULL)
                      put("uvi", weatherPoint.uvIndex ?: JSONObject.NULL)
                  })
+                 fObj.put("activityBySpecies", JSONObject().apply {
+                     for (fish in listOf(FishSpecies.carp, FishSpecies.barbel, FishSpecies.bass, FishSpecies.pike, FishSpecies.catfish)) {
+                         val specific = if (fish == selectedSpecies) activityScore else ActivityScoring.calculate(
+                             args.copy(species = fish, mode = SpeciesSelection.modeFor(fish)))
+                         put(fish.name, JSONObject().put("overall", specific.overall))
+                     }
+                 })
 
-                fObj.put("astronomy", astro)
+                fObj.put("astronomy", pointAstro)
                 fObj.put("hydro", JSONObject().apply {
                     put("waterLevel", hydroDataForScoring.waterLevel ?: JSONObject.NULL)
                     put("waterFlow", hydroDataForScoring.waterFlow ?: JSONObject.NULL)
-                    put("waterTemp", hydroDataForScoring.waterTemp ?: JSONObject.NULL)
+                    put("waterTemp", waterTempForScoring ?: JSONObject.NULL)
+                    put("waterTempSource", waterSource.name.lowercase(Locale.ROOT))
                 })
 
                 fObj.put("activity", JSONObject().apply {
@@ -491,7 +518,14 @@ class ForecastRepository {
                     })
                     put("reasons", JSONArray().apply { activityScore.reasons.forEach { put(it) } })
                     put("recommendation", activityScore.recommendation)
-                    put("confidence", activityScore.confidence)
+                    put("confidence", activityScore.confidence) // compatibility: input coverage, not capture probability
+                    put("influences", JSONArray().apply {
+                        activityScore.breakdown.meteoModel?.influences?.forEach { influence ->
+                            put(JSONObject().put("key", influence.key).put("contribution", influence.contribution))
+                        }
+                    })
+                    put("dataCoverage", activityScore.confidence)
+                    put("waterTempSource", waterSource.name.lowercase(Locale.ROOT))
                 })
 
                 fObj.put("location", JSONObject().apply {
@@ -521,7 +555,7 @@ class ForecastRepository {
             // ---------------------------
             // Determinar la fecha local del anchorNowMs para filtrar puntos del mismo día (soporta días con más puntos)
             val anchorDateLocal = try {
-                java.time.LocalDate.ofInstant(Instant.ofEpochMilli(anchorNowMs), java.time.ZoneId.systemDefault())
+                java.time.LocalDate.ofInstant(Instant.ofEpochMilli(anchorNowMs), forecastZone)
             } catch (_: Exception) {
                 java.time.LocalDate.now()
             }
@@ -529,7 +563,7 @@ class ForecastRepository {
             val itemsForToday = itemsForWindows.filter { pair ->
                 val timeStr = pair.first
                 val tMs = parseTimeMs(timeStr) ?: return@filter false
-                val ld = java.time.LocalDate.ofInstant(Instant.ofEpochMilli(tMs), java.time.ZoneId.systemDefault())
+                val ld = java.time.LocalDate.ofInstant(Instant.ofEpochMilli(tMs), forecastZone)
                 ld == anchorDateLocal
             }.sortedBy { parseTimeMs(it.first) ?: 0L }
 
@@ -552,8 +586,8 @@ class ForecastRepository {
 
             val response = JSONObject().apply {
                 put("location", locationObj)
-                put("mode", "carpfishing")
-                put("species", species)
+                put("mode", selectedMode.name)
+                put("species", selectedSpecies.name)
                 put("forecasts", forecastsArr)
                 put("bestWindows", bestWindowsArr)
                 put("bestWindowsToday", bestWindowsTodayArr)
@@ -574,65 +608,12 @@ class ForecastRepository {
             root.put("dataAvailability", response.get("dataAvailability"))
             root.put("generatedAt", response.get("generatedAt"))
 
-        } catch (_: Exception) {
-            // si algo falla en la construcción avanzada, dejamos el comportamiento previo
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            throw IOException("Unable to build hourly forecast", e)
         }
 
         return root
     }
 
-    // computeDerivedFeatures similar to server TS implementation
-    private fun computeDerivedFeatures(weatherData: List<WeatherData>, index: Int): DerivedWeatherFeatures {
-        val w = weatherData.getOrNull(index) ?: return DerivedWeatherFeatures()
-        val prev1 = if (index - 1 >= 0) weatherData[index - 1] else null
-        val prev3 = if (index - 3 >= 0) weatherData[index - 3] else null
-
-        val deltaPressure1h = prev1?.let { w.pressure - it.pressure }
-        val deltaTemp1h = prev1?.let { w.temperature - it.temperature }
-
-        var deltaPressure3hAvg: Double? = null
-        if (prev3 != null && index - 1 >= 0) {
-            val deltas = mutableListOf<Double>()
-            for (i in (index - 3)..index) {
-                if (i - 1 < 0) continue
-                val cur = weatherData[i]
-                val prev = weatherData[i - 1]
-                deltas.add(cur.pressure - prev.pressure)
-            }
-            if (deltas.isNotEmpty()) deltaPressure3hAvg = deltas.sum() / deltas.size
-        }
-
-        fun sumPrecip(fromInclusive: Int, toInclusive: Int): Double {
-            var sum = 0.0
-            for (i in maxOf(0, fromInclusive) .. minOf(weatherData.size - 1, toInclusive)) {
-                sum += weatherData.getOrNull(i)?.precipitation ?: 0.0
-            }
-            return sum
-        }
-
-        val rainPrev6h = if (index - 1 >= 0) sumPrecip(index - 6, index - 1) else null
-        val rainSum24h = if (index - 1 >= 0) sumPrecip(index - 24, index - 1) else null
-
-        var windStability3h: Double? = null
-        if (index - 2 >= 0) {
-            val speeds = listOf(
-                weatherData[index - 2].windSpeed,
-                weatherData[index - 1].windSpeed,
-                weatherData[index].windSpeed
-            )
-            val avg = speeds.sum() / speeds.size
-            val variance = speeds.fold(0.0) { acc, v -> acc + (v - avg) * (v - avg) } / speeds.size
-            val std = kotlin.math.sqrt(variance)
-            windStability3h = kotlin.math.max(0.0, kotlin.math.min(1.0, 1 - std / kotlin.math.max(1.0, avg)))
-        }
-
-        return DerivedWeatherFeatures(
-            deltaPressure1h = deltaPressure1h,
-            deltaPressure3hAvg = deltaPressure3hAvg,
-            deltaTemp1h = deltaTemp1h,
-            rainPrev6h = rainPrev6h,
-            rainSum24h = rainSum24h,
-            windStability3h = windStability3h
-        )
-    }
 }

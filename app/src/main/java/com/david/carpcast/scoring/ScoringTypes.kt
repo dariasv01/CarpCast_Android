@@ -4,6 +4,8 @@ package com.david.carpcast.scoring
 
 enum class FishingMode { carpfishing, predator }
 
+enum class WaterTemperatureSource { MEASURED, ESTIMATED, UNKNOWN }
+
 enum class FishSpecies { general, carp, barbel, bass, pike, catfish }
 
 data class WeatherData(
@@ -51,14 +53,18 @@ data class DerivedWeatherFeatures(
     val deltaTemp1h: Double? = null,
     val rainPrev6h: Double? = null,
     val rainSum24h: Double? = null,
-    val windStability3h: Double? = null
+    val windStability3h: Double? = null,
+    val deltaWaterTemp1h: Double? = null
 )
 
 // Modelo guardado para inspección
+data class FactorInfluence(val key: String, val contribution: Double)
+
 data class MeteoModelInfo(
     val wNorm: Double?,
     val cNorm: Double?,
-    val mix: Mix?
+    val mix: Mix?,
+    val influences: List<FactorInfluence> = emptyList()
 )
 
 // Resultado de scoring con desglose

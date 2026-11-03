@@ -42,10 +42,19 @@ class LocationViewModel(
 
     private val prefsName = "carpcast_prefs"
     private val favsKey = "favorites"
+    private val favoriteChanges = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == favsKey) loadFavorites()
+    }
 
     init {
         // cargar favoritos desde SharedPreferences
         loadFavorites()
+        application.getSharedPreferences(prefsName, Context.MODE_PRIVATE).registerOnSharedPreferenceChangeListener(favoriteChanges)
+    }
+
+    override fun onCleared() {
+        getApplication<Application>().getSharedPreferences(prefsName, Context.MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(favoriteChanges)
+        super.onCleared()
     }
 
     fun onQueryChanged(q: String) {
@@ -109,23 +118,7 @@ class LocationViewModel(
     }
 
     private fun loadFavorites() {
-        try {
-            val prefs = getApplication<Application>().getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-            val raw = prefs.getString(favsKey, null) ?: return
-            // simple parse assuming JSONArray of objects {name, lat, lon}
-            val list = mutableListOf<LocationModel>()
-            val arr = org.json.JSONArray(raw)
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val name = o.optString("name", "fav")
-                val lat = o.optDouble("lat", Double.NaN)
-                val lon = o.optDouble("lon", Double.NaN)
-                if (lat.isFinite() && lon.isFinite()) list.add(LocationModel(name, lat, lon))
-            }
-            favorites = list
-        } catch (_: Exception) {
-            // ignore parse errors
-        }
+        favorites = SavedFishingLocations.read(getApplication<Application>())
     }
 
     private fun saveFavorites() {
