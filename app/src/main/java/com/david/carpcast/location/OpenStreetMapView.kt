@@ -8,6 +8,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.Box
@@ -55,6 +61,7 @@ fun OpenStreetMapView(
     val mapRef = remember { mutableStateOf<MapView?>(null) }
     // estado local para el estilo del mapa (permite cambiar al vuelo)
     val styleState = remember { mutableStateOf(mapStyle) }
+    val uriHandler = LocalUriHandler.current
     // flag que indica si debemos mostrar los botones de zoom Compose (ocultar si existen controles internos)
     val showComposeZoom = remember { mutableStateOf(true) }
     // Si forzamos la eliminación de controles internos, asumimos que mostraremos los botones Compose
@@ -335,6 +342,11 @@ fun OpenStreetMapView(
                     Icon(Icons.Default.Remove, contentDescription = "Zoom out")
                 }
             }
+        }
+        if (styleState.value.lowercase() !in setOf("satellite", "esri", "world_imagery", "stamen")) {
+            Text("© OpenStreetMap contributors", color = Color(0xFF142C3B), fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.BottomStart).background(Color.White.copy(alpha = 0.9f))
+                    .clickable { uriHandler.openUri("https://www.openstreetmap.org/copyright") }.padding(horizontal = 5.dp, vertical = 2.dp))
         }
     }
 }

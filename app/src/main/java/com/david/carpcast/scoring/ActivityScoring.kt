@@ -52,7 +52,6 @@ object ActivityScoring {
     fun calculate(args: ActivityCalculateArgs): ActivityScore {
         val weather = args.weather
         val astro = args.astro
-        val hydro = args.hydro
         val marine = args.marine
         val mode = args.mode
         val normalizedSpecies = normalizeSpeciesForMode(args.species, mode)
@@ -79,10 +78,13 @@ object ActivityScoring {
 
         val meteo = meteoResult.score
         val astroScore = calculateAstroScoreSpecies(astro, nowMs, normalizedSpecies, reasons)
-        val hydroScore = if (normalizedSpecies == FishSpecies.carp) null else hydro?.let { calculateHydroScore(it, reasons) }
+        // Presence of a measurement is data coverage, not evidence of favourable
+        // activity. Keep hydrology informational until a species-specific model
+        // can evaluate actual values/trends. Carp already excluded this block.
+        val hydroScore: Double? = null
         val marineScore = marine?.let { calculateMarineScore(it, reasons) }
 
-        // 2) Combine with renormalized weights (40/30/20/10)
+        // 2) Renormalize only the blocks with an activity model.
         val baseMeteo = 0.4
         val baseAstro = if (normalizedSpecies == FishSpecies.carp) 0.0 else 0.3
         val baseHydro = if (hydroScore != null) 0.2 else 0.0
@@ -656,14 +658,6 @@ object ActivityScoring {
         }
 
         return score
-    }
-
-    private fun calculateHydroScore(hydro: HydroData, reasons: MutableList<String>): Double {
-        var score = 50.0
-        if (hydro.waterLevel != null) { score += 20; reasons += "Datos de nivel de agua disponibles" }
-        if (hydro.waterFlow != null) { score += 20; reasons += "Datos de caudal disponibles" }
-        if (hydro.waterTemp != null) { score += 10; reasons += "Datos de temperatura del agua disponibles" }
-        return min(100.0, score)
     }
 
     private fun calculateMarineScore(marine: MarineData, reasons: MutableList<String>): Double {
